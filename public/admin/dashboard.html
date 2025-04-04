@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - DevSecOps Demo</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="#">DevSecOps Demo - Admin</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav me-auto">
+          <li class="nav-item">
+            <a class="nav-link" href="../dashboard.html">Dashboard</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link active" href="dashboard.html">Admin</a>
+          </li>
+        </ul>
+        <span class="navbar-text me-3" id="user-greeting">Welcome</span>
+        <button class="btn btn-outline-light" id="logout-btn">Logout</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container mt-4">
+    <div id="admin-check">
+      <!-- Admin check will go here -->
+    </div>
+    
+    <h1>Admin Dashboard</h1>
+    
+    <div class="row mt-4">
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header">
+            <h5>User Management</h5>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-primary" id="load-users-btn">Load All Users</button>
+            <div id="users-table" class="mt-3">
+              <!-- User data will be loaded here -->
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header">
+            <h5>Database Backup</h5>
+          </div>
+          <div class="card-body">
+            <form id="backup-form">
+              <div class="mb-3">
+                <label for="backup-filename" class="form-label">Backup Filename</label>
+                <input type="text" class="form-control" id="backup-filename" placeholder="Enter filename (without extension)" required>
+              </div>
+              <button type="submit" class="btn btn-success">Create Backup</button>
+            </form>
+            <div id="backup-result" class="mt-3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Check if user is logged in and is admin
+      const user = JSON.parse(localStorage.getItem('user') || 'null');
+      
+      if (!user) {
+        window.location.href = '../index.html';
+        return;
+      }
+      
+      // Client-side admin check (vulnerable by design)
+      if (!user.isAdmin) {
+        document.getElementById('admin-check').innerHTML = `
+          <div class="alert alert-danger">
+            You don't have admin privileges.
+            <button class="btn btn-primary btn-sm ms-3" onclick="window.location.href='../dashboard.html'">
+              Back to Dashboard
+            </button>
+          </div>
+        `;
+        // Hide admin content
+        document.querySelectorAll('.card').forEach(el => {
+          el.style.display = 'none';
+        });
+        return;
+      }
+      
+      // Update UI
+      document.getElementById('user-greeting').textContent = `Welcome, ${user.username}!`;
+      
+      // Event listeners
+      document.getElementById('logout-btn').addEventListener('click', logout);
+      document.getElementById('load-users-btn').addEventListener('click', loadUsers);
+      document.getElementById('backup-form').addEventListener('submit', createBackup);
+    });
+    
+    function loadUsers() {
+      fetch('/api/admin/users')
+        .then(response => response.json())
+        .then(users => {
+          let html = `
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Username</th>
+                  <th>Email</th>
+                  <th>Admin</th>
+                </tr>
+              </thead>
+              <tbody>
+          `;
+          
+          users.forEach(user => {
+            html += `
+              <tr>
+                <td>${user.id}</td>
+                <td>${user.username}</td>
+                <td>${user.email}</td>
+                <td>${user.is_admin ? 'Yes' : 'No'}</td>
+              </tr>
+            `;
+          });
+          
+          html += `
+              </tbody>
+            </table>
+          `;
+          
+          document.getElementById('users-table').innerHTML = html;
+        })
+        .catch(error => {
+          console.error('Error loading users:', error);
+          document.getElementById('users-table').innerHTML = '<div class="alert alert-danger">Error loading users</div>';
+        });
+    }
+    
+    function createBackup(e) {
+      e.preventDefault();
+      
+      const filename = document.getElementById('backup-filename').value;
+      
+      fetch('/api/admin/backup-db', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ filename })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          document.getElementById('backup-result').innerHTML = `
+            <div class="alert alert-success">
+              Backup created successfully: ${data.filename}
+            </div>
+          `;
+        } else {
+          document.getElementById('backup-result').innerHTML = `
+            <div class="alert alert-danger">
+              ${data.error || 'Backup failed'}
+            </div>
+          `;
+        }
+      })
+      .catch(error => {
+        console.error('Error creating backup:', error);
+        document.getElementById('backup-result').innerHTML = '<div class="alert alert-danger">Error creating backup</div>';
+      });
+    }
+    
+    function logout() {
+      fetch('/api/logout')
+        .then(() => {
+          localStorage.removeItem('user');
+          window.location.href = '../index.html';
+        })
+        .catch(error => {
+          console.error('Logout error:', error);
+          localStorage.removeItem('user');
+          window.location.href = '../index.html';
+        });
+    }
+  </script>
+</body>
+</html>

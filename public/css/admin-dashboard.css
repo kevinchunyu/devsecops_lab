@@ -1,0 +1,21 @@
+/* public/css/admin-dashboard.css */
+.card {
+    margin-bottom: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  }
+  
+  #users-table {
+    margin-top: 15px;
+  }
+  
+  .card-header {
+    background-color: #f7f7f7;
+  }
+  
+  .btn-success {
+    width: 100%;
+  }
+  
+  #backup-result {
+    margin-top: 15px;
+  }
