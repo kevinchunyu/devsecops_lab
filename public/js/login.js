@@ -2,14 +2,14 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Get reference to the login form
     const loginForm = document.getElementById('login-form');
-    
+
     // Add submit event listener
     loginForm.addEventListener('submit', function(e) {
       e.preventDefault();
-      
+
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
-      
+
       // Send login request to API
       fetch('/api/login', {
         method: 'POST',

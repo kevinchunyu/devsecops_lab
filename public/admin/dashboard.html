@@ -32,9 +32,9 @@
     <div id="admin-check">
       <!-- Admin check will go here -->
     </div>
-    
+
     <h1>Admin Dashboard</h1>
-    
+
     <div class="row mt-4">
       <div class="col-md-6">
         <div class="card">
@@ -49,7 +49,7 @@
           </div>
         </div>
       </div>
-      
+
       <div class="col-md-6">
         <div class="card">
           <div class="card-header">
@@ -75,12 +75,12 @@
     document.addEventListener('DOMContentLoaded', function() {
       // Check if user is logged in and is admin
       const user = JSON.parse(localStorage.getItem('user') || 'null');
-      
+
       if (!user) {
         window.location.href = '../index.html';
         return;
       }
-      
+
       // Client-side admin check (vulnerable by design)
       if (!user.isAdmin) {
         document.getElementById('admin-check').innerHTML = `
@@ -97,16 +97,16 @@
         });
         return;
       }
-      
+
       // Update UI
       document.getElementById('user-greeting').textContent = `Welcome, ${user.username}!`;
-      
+
       // Event listeners
       document.getElementById('logout-btn').addEventListener('click', logout);
       document.getElementById('load-users-btn').addEventListener('click', loadUsers);
       document.getElementById('backup-form').addEventListener('submit', createBackup);
     });
-    
+
     function loadUsers() {
       fetch('/api/admin/users')
         .then(response => response.json())
@@ -123,7 +123,7 @@
               </thead>
               <tbody>
           `;
-          
+
           users.forEach(user => {
             html += `
               <tr>
@@ -134,12 +134,12 @@
               </tr>
             `;
           });
-          
+
           html += `
               </tbody>
             </table>
           `;
-          
+
           document.getElementById('users-table').innerHTML = html;
         })
         .catch(error => {
@@ -147,12 +147,12 @@
           document.getElementById('users-table').innerHTML = '<div class="alert alert-danger">Error loading users</div>';
         });
     }
-    
+
     function createBackup(e) {
       e.preventDefault();
-      
+
       const filename = document.getElementById('backup-filename').value;
-      
+
       fetch('/api/admin/backup-db', {
         method: 'POST',
         headers: {
@@ -181,7 +181,7 @@
         document.getElementById('backup-result').innerHTML = '<div class="alert alert-danger">Error creating backup</div>';
       });
     }
-    
+
     function logout() {
       fetch('/api/logout')
         .then(() => {
