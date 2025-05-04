@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./database:/usr/src/app/database
+    networks:
+      - devnet
+
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    user: root
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - devnet
+
+
+
+  zap:
+    image: zaproxy/zap-stable
+    command: zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
+    ports:
+      - "8090:8090"
+    networks:
+      - devnet
+    depends_on:
+      - app
+
+
+networks:
+  devnet:
+
+volumes:
+  jenkins_home:
