@@ -1,4 +1,4 @@
-// app.js - Main application file
+// app.js - Main application file with deliberate vulnerabilities
 const express = require('express');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
@@ -16,11 +16,11 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// A02: Cryptographic Failures - Hardcoded API keys
+// Vulnerability: Hardcoded credentials in code
 const DB_CONFIG = {
   connectionString: "localhost:5432/appdb",
   username: "db_user",
-  password: "Password123!"  // Hardcoded sensitive credential
+  password: "Password123!"
 };
 
 // Initialize SQLite database
@@ -66,7 +66,7 @@ db.serialize(() => {
     }
 
     if (!row) {
-      // A02: Cryptographic Failures - Weak hashing
+      // Vulnerability: Weak password hashing (MD5)
       const hashedPassword = crypto.createHash('md5').update('admin123').digest('hex');
 
       db.run(
@@ -85,7 +85,7 @@ db.serialize(() => {
             );
             db.run(
               'INSERT INTO notes (user_id, title, content) VALUES (?, ?, ?)',
-              [1, 'Security Reminder', 'Remember to change your default password.']
+              [1, 'Security Reminder', '<script>alert("XSS vulnerability!");</script> Remember to change your default password.']
             );
           }
         }
@@ -101,7 +101,7 @@ db.serialize(() => {
     }
 
     if (!row) {
-      // A02: Cryptographic Failures - Weak hashing
+      // Vulnerability: Weak password hashing (MD5)
       const hashedPassword = crypto.createHash('md5').update('password').digest('hex');
 
       db.run(
@@ -125,20 +125,17 @@ db.serialize(() => {
   });
 });
 
-// AUTHENTICATION ROUTES
-// =====================
-
-// A02: Cryptographic Failures - Weak hashing
+// Vulnerability: Weak password hashing
 function hashPassword(password) {
   return crypto.createHash('md5').update(password).digest('hex');
 }
 
-// A03: Injection - SQL Injection in login
+// Vulnerability: SQL Injection
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   const hashedPassword = hashPassword(password);
 
-  // A03: SQL Injection vulnerability
+  // SQL Injection vulnerability
   const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${hashedPassword}'`;
 
   console.log(`Executing query: ${query}`); // For demonstration purposes
@@ -155,6 +152,7 @@ app.post('/api/login', (req, res) => {
     // Create session (simplified for demo)
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
 
+    // Vulnerability: Cookies without secure flag
     res.cookie('sessionId', sessionId, { httpOnly: true });
     res.cookie('userId', user.id, { httpOnly: true });
     res.cookie('isAdmin', user.is_admin === 1, { httpOnly: true });
@@ -174,6 +172,7 @@ app.post('/api/login', (req, res) => {
 app.post('/api/register', (req, res) => {
   const { username, password, email } = req.body;
 
+  // Vulnerability: No input validation or sanitization
   if (!username || !password || !email) {
     return res.status(400).json({ error: 'All fields are required' });
   }
@@ -185,6 +184,7 @@ app.post('/api/register', (req, res) => {
     [username, hashedPassword, email],
     function(err) {
       if (err) {
+        // Vulnerability: Detailed error exposure
         return res.status(500).json({ error: 'Registration failed', details: err.message });
       }
 
@@ -208,13 +208,10 @@ app.get('/api/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// DASHBOARD ROUTES
-// ===============
-
-// A01: Broken Access Control - Missing proper authorization
+// Vulnerability: Broken Access Control - Missing proper authentication
 app.get('/api/dashboard/stats', (req, res) => {
-  // Should check user authentication here
-
+  // Should check user authentication here but doesn't
+  
   db.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
     if (err) {
       return res.status(500).json({ error: 'Database error', details: err.message });
@@ -240,17 +237,17 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// A01: Broken Access Control - Missing proper authorization
+// Vulnerability: SQL Injection + Missing Authorization 
 app.get('/api/notes', (req, res) => {
   const userId = req.cookies.userId;
   const isAdmin = req.cookies.isAdmin === 'true';
 
-  // Missing authorization - should check if the user is authenticated
+  // Missing authentication check here
 
-  // A03: SQL Injection vulnerability (if userId is manipulated)
+  // SQL Injection vulnerability
   let query = `SELECT * FROM notes WHERE user_id = ${userId}`;
 
-  // Admin can see all notes (but implementation is flawed)
+  // Admin can see all notes
   if (isAdmin) {
     query = `SELECT notes.*, users.username FROM notes JOIN users ON notes.user_id = users.id`;
   }
@@ -266,8 +263,55 @@ app.get('/api/notes', (req, res) => {
   });
 });
 
-// A03: Command Injection in database backup
+// Vulnerability: XSS in note content
+app.get('/api/note/:id', (req, res) => {
+  const noteId = req.params.id;
+  
+  // Missing authorization check - any user can access any note
+  
+  db.get('SELECT * FROM notes WHERE id = ?', [noteId], (err, note) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+
+    if (!note) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    // No access control check, no content sanitization
+    res.json(note);
+  });
+});
+
+// Vulnerability: XSS through note creation
+app.post('/api/notes', (req, res) => {
+  const { title, content } = req.body;
+  const userId = req.cookies.userId;
+
+  // No input validation or sanitization
+  
+  db.run(
+    'INSERT INTO notes (user_id, title, content) VALUES (?, ?, ?)',
+    [userId, title, content],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to create note', details: err.message });
+      }
+
+      res.json({
+        id: this.lastID,
+        user_id: userId,
+        title,
+        content,
+        created_at: new Date().toISOString()
+      });
+    }
+  );
+});
+
+// Vulnerability: Command Injection in database backup
 app.post('/api/admin/backup-db', (req, res) => {
+  // Using cookie for admin check instead of proper session validation
   const isAdmin = req.cookies.isAdmin === 'true';
 
   if (!isAdmin) {
@@ -280,7 +324,7 @@ app.post('/api/admin/backup-db', (req, res) => {
     return res.status(400).json({ error: 'Filename is required' });
   }
 
-  // A03: Command injection vulnerability
+  // Command injection vulnerability
   const backupCommand = `sqlite3 ./database/userapp.db .dump > ./backups/${filename}.sql`;
 
   console.log(`Executing command: ${backupCommand}`); // For demonstration purposes
@@ -294,21 +338,72 @@ app.post('/api/admin/backup-db', (req, res) => {
   });
 });
 
-// API endpoint to get all users (admin only)
+// Vulnerability: Privilege escalation via insecure admin checks
 app.get('/api/admin/users', (req, res) => {
-  // A01: Broken Access Control - Late authorization check
+  // Get data first before checking authorization
   db.all('SELECT id, username, email, is_admin FROM users', (err, users) => {
     if (err) {
       return res.status(500).json({ error: 'Database error', details: err.message });
     }
 
-    // Check admin status AFTER data is fetched (vulnerable)
+    // Check admin status AFTER data is fetched
     const isAdmin = req.cookies.isAdmin === 'true';
     if (!isAdmin) {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
     res.json(users);
+  });
+});
+
+// Vulnerability: Unsecured admin action
+app.post('/api/admin/delete-user/:id', (req, res) => {
+  const userId = req.params.id;
+  
+  // Using cookie for admin check instead of proper validation
+  const isAdmin = req.cookies.isAdmin === 'true';
+  
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  
+  db.run('DELETE FROM users WHERE id = ?', [userId], function(err) {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to delete user', details: err.message });
+    }
+    
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ success: true });
+  });
+});
+
+// Vulnerability: Directory traversal in file download
+app.get('/api/download/:filename', (req, res) => {
+  const filename = req.params.filename;
+  
+  // No validation on the filename parameter, allowing path traversal
+  const filePath = path.join(__dirname, 'public', 'downloads', filename);
+  
+  // This could allow accessing files outside the intended directory
+  res.sendFile(filePath);
+});
+
+// Vulnerability: Cross-Site Request Forgery (CSRF) - no CSRF token 
+app.post('/api/user/update-email', (req, res) => {
+  const userId = req.cookies.userId;
+  const { email } = req.body;
+  
+  // No CSRF protection
+  
+  db.run('UPDATE users SET email = ? WHERE id = ?', [email, userId], function(err) {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to update email', details: err.message });
+    }
+    
+    res.json({ success: true });
   });
 });
 

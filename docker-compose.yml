@@ -1,44 +1,83 @@
 version: '3.8'
-
 services:
   app:
-    build: .
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./database:/usr/src/app/database
-    networks:
-      - devnet
-
-  jenkins:
-    build:
-      context: .
-      dockerfile: Dockerfile.jenkins
-    user: root
+    build: ./app
+    container_name: devsecops-app
     ports:
       - "8080:8080"
+    restart: unless-stopped
+    networks:
+      - devsecops_net
+
+  sonarqube:
+    image: sonarqube:lts
+    container_name: devsecops-sonarqube
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://db:5432/sonar
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=sonar
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+    depends_on:
+      - db
+    networks:
+      - devsecops_net
+
+  db:
+    image: postgres:13
+    container_name: devsecops-db
+    environment:
+      - POSTGRES_USER=sonar
+      - POSTGRES_PASSWORD=sonar
+      - POSTGRES_DB=sonar
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - devsecops_net
+
+  zap-ui:
+    image: zaproxy/zap-stable
+    container_name: devsecops-zap
+    entrypoint:
+      - "zap.sh"
+      - "-daemon"
+      - "-port"
+      - "8082"  # Changed from 8081 to 8082
+      - "-host"
+      - "0.0.0.0"
+      - "-config"
+      - "api.disablekey=true"
+    ports:
+      - "8082:8082"  # Changed from 8081 to 8082
+    restart: unless-stopped
+    networks:
+      - devsecops_net
+
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: devsecops-jenkins
+    user: "root"
+    ports:
+      - "8081:8080"
       - "50000:50000"
     volumes:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
     networks:
-      - devnet
-
-
-
-  zap:
-    image: zaproxy/zap-stable
-    command: zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.disablekey=true
-    ports:
-      - "8090:8090"
-    networks:
-      - devnet
-    depends_on:
-      - app
-
+      - devsecops_net
 
 networks:
-  devnet:
+  devsecops_net:
+    driver: bridge
 
 volumes:
   jenkins_home:
+  postgres_data:  # Added volume for PostgreSQL data persistence
