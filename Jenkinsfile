@@ -1,9 +1,13 @@
 pipeline {
   agent any
+
   environment {
-    // Jenkins credentials: add a "secret text" credential named SONAR_TOKEN
-    SONAR_TOKEN = credentials('SONAR_TOKEN')
+    // SonarQube token stored as a Secret Text credential named SONAR_TOKEN
+    SONAR_TOKEN  = credentials('SONAR_TOKEN')
+    // Name must match what you gave in Global Tool Configuration
+    SCANNER_HOME = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
   }
+
   stages {
     stage('Checkout') {
       steps {
@@ -13,40 +17,68 @@ pipeline {
 
     stage('Build App Docker Image') {
       steps {
-        sh 'docker build -t devsecops_lab_app:latest ./app'
+        sh '''
+          docker build \
+            --pull \
+            -t devsecops_lab_app:latest \
+            ./app
+        '''
       }
     }
 
     stage('SonarQube Analysis') {
       steps {
-        // Requires SonarQube Scanner plugin & SonarQube server defined in Jenkins global config
         withSonarQubeEnv('SonarQube Server') {
-          sh 'sonar-scanner -Dsonar.login=$SONAR_TOKEN'
+          // invoke the installed scanner
+          sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.login=$SONAR_TOKEN"
         }
+      }
+    }
+
+    stage('Quality Gate') {
+      steps {
+        // wait up to 2 minutes for the SonarQube Quality Gate result
+        timeout(time: 2, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+
+    stage('Run App Container') {
+      steps {
+        sh '''
+          docker run -d \
+            --name devsecops_app \
+            -p 8080:8080 \
+            devsecops_lab_app:latest
+        '''
       }
     }
 
     stage('OWASP ZAP Full Scan') {
       steps {
-        // Run ZAP as a Docker container against the running app
         sh '''
           docker run --rm \
+            --network host \
             -v $(pwd):/zap/wrk/:rw \
-            -t owasp/zap2docker-stable \
+            owasp/zap2docker-stable \
             zap-full-scan.py \
-              -t http://app:8080 \
-              -g gen.conf \
+              -t http://localhost:8080 \
               -r zap_report.html
         '''
-        archiveArtifacts artifacts: 'zap_report.html', onlyIfSuccessful: true
+        archiveArtifacts artifacts: 'zap_report.html', fingerprint: true
       }
     }
   }
 
   post {
     always {
-      // clean up dangling containers/images if necessary
-      sh 'docker image prune -f'
+      // Tear down the app and prune images
+      sh '''
+        docker stop devsecops_app  || true
+        docker rm   devsecops_app  || true
+        docker image prune -f
+      '''
     }
   }
 }
