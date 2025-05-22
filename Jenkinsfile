@@ -45,12 +45,27 @@ pipeline {
             -p 9080:8080 \
             devsecops_lab_app:latest
           
-          # Wait for app to be ready
-          sleep 10
+          # Wait for app to be ready - longer wait and better health check
+          echo "Waiting for app to start..."
+          sleep 15
           
-          # Test if app is accessible
-          curl -f http://localhost:9080 || echo "App not ready yet, waiting..."
-          sleep 5
+          # Check if container is running
+          docker ps | grep devsecops_app || echo "Container not running!"
+          
+          # Check container logs
+          echo "Container logs:"
+          docker logs devsecops_app
+          
+          # Test connectivity with timeout and retries
+          for i in {1..10}; do
+            if curl -f --connect-timeout 5 http://localhost:9080; then
+              echo "App is ready!"
+              break
+            else
+              echo "Attempt $i: App not ready, waiting 5 more seconds..."
+              sleep 5
+            fi
+          done
         '''
       }
     }
@@ -58,9 +73,43 @@ pipeline {
     stage('OWASP ZAP Full Scan') {
       steps {
         sh '''
-          # Get the VM's internal IP address
-          VM_IP=$(ip route get 1 | awk '{print $(NF-2); exit}')
+          # Try multiple methods to get IP address
+          VM_IP=""
+          
+          # Method 1: Try hostname -I
+          if command -v hostname >/dev/null 2>&1; then
+            VM_IP=$(hostname -I | awk '{print $1}')
+          fi
+          
+          # Method 2: Try parsing /proc/net/route if hostname failed
+          if [ -z "$VM_IP" ]; then
+            VM_IP=$(awk '/^[^0-9]/ { next } /^0/ { print $2 }' /proc/net/route | head -1 | xargs printf "%d.%d.%d.%d\n" $(echo $((0x$(echo {} | cut -c7-8))) $(echo $((0x$(echo {} | cut -c5-6))) $(echo $((0x$(echo {} | cut -c3-4))) $(echo $((0x$(echo {} | cut -c1-2)))))
+          fi
+          
+          # Method 3: Fallback to common VM IPs
+          if [ -z "$VM_IP" ]; then
+            # Try common private network ranges
+            for test_ip in "10.0.0.4" "192.168.1.4" "172.16.0.4" "127.0.0.1"; do
+              if curl -f --connect-timeout 2 http://$test_ip:9080 >/dev/null 2>&1; then
+                VM_IP=$test_ip
+                break
+              fi
+            done
+          fi
+          
+          # Final fallback - use localhost and hope for the best
+          if [ -z "$VM_IP" ]; then
+            VM_IP="127.0.0.1"
+          fi
+          
           echo "Using VM IP: $VM_IP"
+          
+          # Test connectivity before ZAP scan
+          curl -f --connect-timeout 5 http://$VM_IP:9080 || {
+            echo "Cannot connect to app at http://$VM_IP:9080"
+            echo "Trying direct localhost..."
+            VM_IP="localhost"
+          }
           
           docker run --rm \
             --network host \
