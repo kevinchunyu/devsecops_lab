@@ -47,6 +47,10 @@ pipeline {
           
           # Wait for app to be ready
           sleep 10
+          
+          # Test if app is accessible
+          curl -f http://localhost:9080 || echo "App not ready yet, waiting..."
+          sleep 5
         '''
       }
     }
@@ -54,12 +58,16 @@ pipeline {
     stage('OWASP ZAP Full Scan') {
       steps {
         sh '''
+          # Get the VM's internal IP address
+          VM_IP=$(ip route get 1 | awk '{print $(NF-2); exit}')
+          echo "Using VM IP: $VM_IP"
+          
           docker run --rm \
             --network host \
             -v $(pwd):/zap/wrk/:rw \
             zaproxy/zap-stable \
             zap-full-scan.py \
-              -t http://localhost:9080 \
+              -t http://${VM_IP}:9080 \
               -r zap_report.html
         '''
         archiveArtifacts artifacts: 'zap_report.html', fingerprint: true
