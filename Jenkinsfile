@@ -38,7 +38,6 @@ pipeline {
     stage('Quality Gate') {
       steps {
           waitForQualityGate abortPipeline: true, credentialsId: 'SONAR_TOKEN'
-        }
       }
     }
 
