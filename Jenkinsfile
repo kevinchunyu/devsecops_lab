@@ -37,9 +37,9 @@ pipeline {
 
     stage('Quality Gate') {
       steps {
-        // wait up to 2 minutes for the SonarQube Quality Gate result
         timeout(time: 2, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: true
+          // use the SONAR_TOKEN credential for the API call
+          waitForQualityGate abortPipeline: true, credentialsId: 'SONAR_TOKEN'
         }
       }
     }
