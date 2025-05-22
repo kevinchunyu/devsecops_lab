@@ -44,6 +44,9 @@ pipeline {
             --name devsecops_app \
             -p 9080:8080 \
             devsecops_lab_app:latest
+          
+          # Wait for app to be ready
+          sleep 10
         '''
       }
     }
@@ -54,7 +57,7 @@ pipeline {
           docker run --rm \
             --network host \
             -v $(pwd):/zap/wrk/:rw \
-            owasp/zap2docker-stable \
+            zaproxy/zap-stable \
             zap-full-scan.py \
               -t http://localhost:9080 \
               -r zap_report.html
