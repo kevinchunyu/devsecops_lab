@@ -2,9 +2,9 @@ pipeline {
   agent any
 
   environment {
-    // SonarQube token stored as a Secret Text credential named SONAR_TOKEN
+    // Jenkins credentials: Secret Text credential named SONAR_TOKEN
     SONAR_TOKEN  = credentials('SONAR_TOKEN')
-    // Name must match what you gave in Global Tool Configuration
+    // The SonarScanner tool you installed globally
     SCANNER_HOME = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
   }
 
@@ -18,8 +18,7 @@ pipeline {
     stage('Build App Docker Image') {
       steps {
         sh '''
-          docker build \
-            --pull \
+          docker build --pull \
             -t devsecops_lab_app:latest \
             ./app
         '''
@@ -29,8 +28,15 @@ pipeline {
     stage('SonarQube Analysis') {
       steps {
         withSonarQubeEnv('SonarQube Server') {
-          // invoke the installed scanner
           sh "${SCANNER_HOME}/bin/sonar-scanner -Dsonar.login=$SONAR_TOKEN"
+        }
+      }
+    }
+
+    stage('Quality Gate') {
+      steps {
+        timeout(time: 10, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
         }
       }
     }
@@ -38,9 +44,13 @@ pipeline {
     stage('Run App Container') {
       steps {
         sh '''
+          # tear down any previous instance
+          docker rm -f devsecops_app 2>/dev/null || true
+
+          # start the app on host port 9080 mapping to container 8080
           docker run -d \
             --name devsecops_app \
-            -p 8080:8080 \
+            -p 9080:8080 \
             devsecops_lab_app:latest
         '''
       }
@@ -54,7 +64,7 @@ pipeline {
             -v $(pwd):/zap/wrk/:rw \
             owasp/zap2docker-stable \
             zap-full-scan.py \
-              -t http://localhost:8080 \
+              -t http://localhost:9080 \
               -r zap_report.html
         '''
         archiveArtifacts artifacts: 'zap_report.html', fingerprint: true
@@ -64,8 +74,8 @@ pipeline {
 
   post {
     always {
-      // Tear down the app and prune images
       sh '''
+        # clean up the app container & dangling images
         docker stop devsecops_app  || true
         docker rm   devsecops_app  || true
         docker image prune -f
