@@ -187,7 +187,7 @@ pipeline {
             echo "Checking for SQL Injection and XSS vulnerabilities..."
             # Look for specific vulnerability types in the JSON report
             grep -i "sql" ${WORKSPACE}/zap-reports/zap_report.json || echo "No SQL injection vulnerabilities found"
-            grep -i "xss\|cross.*site.*script" ${WORKSPACE}/zap-reports/zap_report.json || echo "No XSS vulnerabilities found"
+            grep -i -E "xss|cross.*site.*script" ${WORKSPACE}/zap-reports/zap_report.json || echo "No XSS vulnerabilities found"
           fi
           
           ls -la ${WORKSPACE}/zap-reports/ || echo "No reports directory"
