@@ -1,13 +1,14 @@
 pipeline {
   agent any
-
+  tools {
+      nodejs 'Node 18' // Name from your NodeJS installation
+  }
   environment {
     // Jenkins credentials: Secret Text credential named SONAR_TOKEN
     SONAR_TOKEN  = credentials('SONAR_TOKEN')
     // The SonarScanner tool you installed globally
     SCANNER_HOME = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
   }
-
   stages {
     stage('Checkout') {
       steps {
@@ -63,18 +64,22 @@ pipeline {
       }
     }
 
-    stage('OWASP ZAP Security Scan') {
+    stage('OWASP ZAP Targeted Full Scan (SQLi & XSS Only)') {
       steps {
         sh '''
           docker run --rm \
             --network host \
             -v $(pwd):/zap/wrk/:rw \
-            zaproxy/zap-stable \
-            zap-baseline.py \
+            zaproxy/zap-stable zap-full-scan.py \
               -t http://localhost:9080 \
-              -r zap_report.html
+              -r zap_report.html \
+              -J zap_report.json \
+              -z "-config scanner.attackStrength=HIGH \
+                  -config scanner.alertThreshold=LOW \
+                  -addoninstall ascanrulesBeta \
+                  -scannerId 40012,40018"
         '''
-        archiveArtifacts artifacts: 'zap_report.html', fingerprint: true
+        archiveArtifacts artifacts: 'zap_report.*', fingerprint: true
       }
     }
   }
