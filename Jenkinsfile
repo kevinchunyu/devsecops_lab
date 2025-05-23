@@ -29,20 +29,24 @@ pipeline {
     stage('SonarQube Analysis') {
       steps {
         // Ensure Node.js is available in PATH for SonarQube
-        script {
-          // Change to app directory where package.json is located
-          dir('app') {
-            withSonarQubeEnv('SonarQube Server') {
-              sh '''
-                # Verify Node.js is available
-                echo "Node version: $(node --version)"
-                echo "NPM version: $(npm --version)"
-                
-                # Run SonarQube scanner
-                ${SCANNER_HOME}/bin/sonar-scanner -Dsonar.login=$SONAR_TOKEN
-              '''
-            }
-          }
+        withSonarQubeEnv('SonarQube Server') {
+          sh '''
+            # Verify Node.js is available
+            echo "Node version: $(node --version)"
+            echo "NPM version: $(npm --version)"
+            
+            # Run SonarQube scanner from project root with explicit configuration
+            ${SCANNER_HOME}/bin/sonar-scanner \
+              -Dsonar.login=$SONAR_TOKEN \
+              -Dsonar.projectKey=devsecops_lab \
+              -Dsonar.projectName="DevSecOps Lab" \
+              -Dsonar.projectVersion=1.0 \
+              -Dsonar.sources=app \
+              -Dsonar.exclusions="**/node_modules/**,**/coverage/**,**/*.spec.js,**/*.test.js" \
+              -Dsonar.javascript.file.suffixes=.js,.jsx \
+              -Dsonar.css.file.suffixes=.css,.scss,.sass \
+              -Dsonar.sourceEncoding=UTF-8
+          '''
         }
       }
     }
