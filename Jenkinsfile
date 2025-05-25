@@ -28,7 +28,6 @@ pipeline {
     SCANNER_HOME = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
     APP_NAME = "test_app_${params.STUDENT_ID}_${BUILD_NUMBER}"
     IMAGE_TAG = "student_app:${params.STUDENT_ID}-${BUILD_NUMBER}"
-    // Fixed: Convert BUILD_NUMBER to integer properly
     TEST_PORT = "${9100 + (BUILD_NUMBER.toInteger() % 50)}"
   }
   
@@ -157,12 +156,9 @@ pipeline {
         '''
       }
     }
-  }
 
-  post {
-    always {
-      // Fixed: Wrap shell commands in node context
-      node {
+    stage('Cleanup') {
+      steps {
         sh '''
           echo "🧹 Cleaning up..."
           docker stop ${APP_NAME} 2>/dev/null || true
@@ -170,7 +166,11 @@ pipeline {
           docker rmi ${IMAGE_TAG} 2>/dev/null || true
         '''
       }
-      
+    }
+  }
+
+  post {
+    always {
       archiveArtifacts artifacts: 'zap_baseline_report.*', allowEmptyArchive: true
     }
     
