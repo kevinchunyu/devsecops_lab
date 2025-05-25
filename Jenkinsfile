@@ -110,8 +110,9 @@ pipeline {
 
   post {
     always {
-      script {
+      dir("${env.WORKSPACE}") {
         sh "docker rm -f ${APP_NAME} || true"
+        sh "ls -l zap_baseline_report_* || echo '⚠️ No ZAP reports found.'"
         archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
         echo "✅ Pipeline completed."
       }
@@ -126,4 +127,5 @@ pipeline {
       }
     }
   }
+
 }
