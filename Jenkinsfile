@@ -75,7 +75,7 @@ pipeline {
 
     stage('SonarQube Static Analysis') {
       when {
-        expression { return params.RUN_SONAR ?: false }
+        expression { return params.RUN_SONAR ?: true }
       }
       steps {
         withSonarQubeEnv('SonarQube Server') {
