@@ -2,11 +2,10 @@ pipeline {
   agent any
 
   environment {
-    SONAR_TOKEN  = credentials('SONAR_TOKEN')
-    SCANNER_HOME = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-    IMAGE_TAG    = "student001-${BUILD_ID}"
-    APP_NAME     = "app_student001_${BUILD_ID}"
-    DOCKER_NET   = "zap-net"
+    VERSION = "student001-24"
+    APP_NAME = "app_${VERSION}"
+    IMAGE_NAME = "student_app:${VERSION}"
+    TARGET_URL = "http://${APP_NAME}:3009"
   }
 
   stages {
@@ -19,88 +18,62 @@ pipeline {
     stage('Tool Install') {
       steps {
         script {
-          tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+          tool name: 'NodeJS', type: 'hudson.plugins.nodejs.tools.NodeJSInstallation'
         }
       }
     }
 
     stage('Build App Docker Image') {
       steps {
-        sh '''
-          docker build -t student_app:${IMAGE_TAG} ./app
-        '''
+        sh "docker build -t ${IMAGE_NAME} ./app"
       }
     }
 
     stage('Run App in Custom Network') {
       steps {
         script {
-          sh '''
-            docker network inspect zap-net || docker network create zap-net
-            docker rm -f app_student001_22 || true
-            docker run -d --name app_student001_22 --network zap-net student_app:student001-22
+          sh """
+            docker network inspect zap-net >/dev/null 2>&1 || docker network create zap-net
+            docker rm -f ${APP_NAME} || true
+            docker run -d --name ${APP_NAME} --network zap-net ${IMAGE_NAME}
+            echo "⏳ Waiting for ${APP_NAME} to become reachable..."
 
-            echo ⏳ Waiting for app to become reachable...
             for i in {1..10}; do
-              if curl -s --head http://app_student001_22:3009 | grep "200 OK" > /dev/null; then
-                echo ✅ App is reachable!
+              if curl -s --head ${TARGET_URL}/health | grep "200 OK" > /dev/null; then
+                echo "✅ App is up and reachable at ${TARGET_URL}"
                 break
+              else
+                echo "⏳ Attempt \$i: App not reachable yet..."
+                sleep 3
               fi
-              echo "⏳ Attempt $i: App not reachable yet..."
-              sleep 3
             done
-          '''
+          """
         }
       }
     }
-
 
     stage('OWASP ZAP Baseline Scan') {
       steps {
-        sh '''
+        sh """
           echo "🕷️ Starting OWASP ZAP Baseline Scan..."
-          chmod -R 777 $WORKSPACE
-
-          docker run --rm \
-            --network ${DOCKER_NET} \
-            --user 0:0 \
-            -v $WORKSPACE:/zap/wrk/:rw \
+          chmod -R 777 \$WORKSPACE
+          docker run --rm --network zap-net --user 0:0 \
+            -v \$WORKSPACE:/zap/wrk/:rw \
             zaproxy/zap-stable \
-            zap-baseline.py -t http://${APP_NAME}:3009 -r zap_baseline_report.html -J zap_baseline_report.json
-        '''
-      }
-    }
-
-    stage('SonarQube Analysis') {
-      when {
-        expression { return params.RUN_SONAR ?: false }
-      }
-      steps {
-        withSonarQubeEnv('SonarQube Server') {
-          sh '''
-            ${SCANNER_HOME}/bin/sonar-scanner \
-              -Dsonar.login=${SONAR_TOKEN} \
-              -Dsonar.projectKey=devsecops_lab_student001 \
-              -Dsonar.projectName="DevSecOps Lab - student001" \
-              -Dsonar.projectVersion=${BUILD_ID} \
-              -Dsonar.sources=app \
-              -Dsonar.exclusions=**/node_modules/** \
-              -Dsonar.javascript.file.suffixes=.js \
-              -Dsonar.sourceEncoding=UTF-8 \
-              -Dsonar.javascript.node.maxspace=4096
-          '''
-        }
+            zap-baseline.py -t ${TARGET_URL} \
+            -r zap_baseline_report.html -J zap_baseline_report.json
+        """
       }
     }
   }
 
   post {
     always {
-      archiveArtifacts artifacts: '*.html,*.json', allowEmptyArchive: true
-      echo "✅ Pipeline completed."
+      archiveArtifacts artifacts: 'zap_baseline_report.*', allowEmptyArchive: true
+      echo '✅ Pipeline completed (success or failure)'
     }
     failure {
-      echo "❌ Pipeline failed. Check logs above."
+      echo '❌ Pipeline failed'
     }
   }
 }
