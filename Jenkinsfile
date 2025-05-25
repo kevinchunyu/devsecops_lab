@@ -57,45 +57,59 @@ pipeline {
     stage('Run App in Custom Network') {
       steps {
         sh '''
-          docker network create ${DOCKER_NET} || true
+          docker network create zap-net || true
 
-          docker rm -f ${APP_NAME} 2>/dev/null || true
+          docker rm -f ${APP_NAME} || true
 
-          docker run -d \
-            --name ${APP_NAME} \
-            --network ${DOCKER_NET} \
-            ${IMAGE_TAG}
+          docker run -d --name ${APP_NAME} --network zap-net student_app:${BUILD_ID}
 
-          echo "Waiting for app to become reachable..."
+          echo "🔄 Waiting for ${APP_NAME} to become reachable..."
+
+          # Try up to 10 times to get a successful response
           for i in {1..10}; do
-            curl -s "http://${APP_NAME}:3009" > /dev/null && break
-            echo "  ↪ Waiting for ${APP_NAME} (retry $i)..."
-            sleep 3
+            if curl -s --fail http://${APP_NAME}:3009 > /dev/null; then
+              echo "✅ ${APP_NAME} is up!"
+              break
+            else
+              echo "  ↪ Still waiting... (${i}/10)"
+              sleep 3
+            fi
           done
+
+          # Final check to ensure it's reachable, else fail
+          if ! curl -s --fail http://${APP_NAME}:3009 > /dev/null; then
+            echo "❌ ERROR: ${APP_NAME} failed to start."
+            exit 1
+          fi
         '''
       }
     }
 
-    
+
+
     stage('OWASP ZAP Baseline Scan') {
       steps {
         sh '''
           echo "🕷️ Starting OWASP ZAP Baseline Scan..."
 
-          # Ensure write access
           chmod -R 777 ${WORKSPACE}
 
           docker run --rm \
-            --network ${DOCKER_NET} \
+            --network zap-net \
             --user 0:0 \
             -v ${WORKSPACE}:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
               -t http://${APP_NAME}:3009 \
               -r zap_baseline_report.html \
               -J zap_baseline_report.json
+          EXIT_CODE=$?
 
-          echo "📄 Listing generated ZAP reports:"
-          ls -la ${WORKSPACE}/zap_baseline_report.*
+          if [ "$EXIT_CODE" -eq 2 ]; then
+            echo "⚠️ ZAP completed with warnings (exit 2) – continuing."
+          elif [ "$EXIT_CODE" -ne 0 ]; then
+            echo "❌ ZAP scan failed (exit code $EXIT_CODE)"
+            exit $EXIT_CODE
+          fi
         '''
       }
     }
