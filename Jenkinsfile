@@ -32,19 +32,14 @@ pipeline {
       steps {
         script {
           sh '''
-            # Create shared Docker network if it doesn't exist
             docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET}
-
-            # Remove any existing app container
             docker rm -f ${APP_NAME} || true
 
-            # Run app in shared Docker network
             docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
 
             echo "⏳ Waiting for container to be healthy..."
             sleep 5
 
-            # Poll for health check
             for i in {1..20}; do
               if docker exec ${APP_NAME} curl -s http://localhost:3009/health | grep -q "healthy"; then
                 echo "✅ App is healthy!"
@@ -62,9 +57,7 @@ pipeline {
       steps {
         script {
           sh '''
-            echo "🕷️ Starting OWASP ZAP Baseline Scan..."
             chmod -R 777 $WORKSPACE
-
             docker run --rm \
               --network ${DOCKER_NET} \
               --user 0:0 \
@@ -89,14 +82,14 @@ pipeline {
           sh '''
             ${SCANNER_HOME}/bin/sonar-scanner \
               -Dsonar.login=${SONAR_TOKEN} \
+              -Dsonar.host.url=http://sonarqube:9000 \
               -Dsonar.projectKey=devsecops_lab_student001 \
               -Dsonar.projectName="DevSecOps Lab - student001" \
               -Dsonar.projectVersion=${BUILD_ID} \
               -Dsonar.sources=app \
               -Dsonar.exclusions=**/node_modules/** \
               -Dsonar.javascript.file.suffixes=.js \
-              -Dsonar.sourceEncoding=UTF-8 \
-              -Dsonar.scanner.forceReload=true
+              -Dsonar.sourceEncoding=UTF-8
           '''
         }
       }
@@ -106,21 +99,16 @@ pipeline {
   post {
     always {
       script {
-        // Stop and remove app container
         sh "docker rm -f ${APP_NAME} || true"
-
-        // Archive ZAP reports
         archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
-
         echo "✅ Pipeline completed."
       }
     }
-
     failure {
       script {
         sh '''
-          echo "❌ Pipeline failed. Logs from app container:"
-          docker logs ${APP_NAME} || echo "Could not fetch logs"
+          echo "❌ Pipeline failed. Container logs below:"
+          docker logs ${APP_NAME} || echo "Could not get logs"
         '''
         echo "❌ Check pipeline output for issues."
       }
