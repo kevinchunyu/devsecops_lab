@@ -63,13 +63,13 @@ pipeline {
             docker run --rm \
               --network ${DOCKER_NET} \
               --user 0:0 \
-              -v $WORKSPACE:/zap/wrk/:rw \
+              -v $WORKSPACE:/zap/:rw \
               zaproxy/zap-stable \
-              bash -c "cd /zap/wrk && zap-baseline.py \
+              zap-baseline.py \
                 -t http://${APP_NAME}:3009 \
                 -r zap_baseline_report_${BUILD_ID}.html \
                 -J zap_baseline_report_${BUILD_ID}.json \
-                -I"
+                -I
 
             chmod 644 $WORKSPACE/zap_baseline_report_*.html || true
             chmod 644 $WORKSPACE/zap_baseline_report_*.json || true
@@ -77,6 +77,7 @@ pipeline {
         }
       }
     }
+
 
 
     stage('Install Node.js for Sonar') {
