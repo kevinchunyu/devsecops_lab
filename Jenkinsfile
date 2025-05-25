@@ -76,16 +76,18 @@ pipeline {
       }
     }
 
+    
     stage('OWASP ZAP Baseline Scan') {
       steps {
         sh '''
           echo "🕷️ Starting OWASP ZAP Baseline Scan..."
 
-          # Give full write permissions to workspace for ZAP to write zap.yaml and reports
+          # Ensure write access
           chmod -R 777 ${WORKSPACE}
 
           docker run --rm \
             --network ${DOCKER_NET} \
+            --user 0:0 \
             -v ${WORKSPACE}:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
               -t http://${APP_NAME}:3009 \
@@ -97,6 +99,7 @@ pipeline {
         '''
       }
     }
+
 
 
     stage('Cleanup') {
