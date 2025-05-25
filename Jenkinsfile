@@ -75,11 +75,16 @@ pipeline {
     stage('Install Node.js for Sonar') {
       steps {
         sh '''
-          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-          sudo apt-get install -y nodejs
+          if ! command -v node > /dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+            apt-get install -y nodejs
+          else
+            echo "Node.js already installed: $(node -v)"
+          fi
         '''
       }
     }
+
     stage('SonarQube Static Analysis') {
       when {
         expression { return params.RUN_SONAR ?: true }
