@@ -44,15 +44,14 @@ pipeline {
           # Start app in custom network
           docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
 
-          echo "Waiting for app to become reachable..."
+           echo ⏳ Waiting for app to become reachable...
           for i in {1..10}; do
-            if curl -s http://${APP_NAME}:3009 >/dev/null; then
-              echo "✅ App is reachable!"
+            if curl -s --head http://app_student001_21:3009 | grep "200 OK" > /dev/null; then
+              echo ✅ App is reachable!
               break
-            else
-              echo "⏳ Waiting for ${APP_NAME}... (attempt $i)"
-              sleep 3
             fi
+            echo ⏳ Waiting for app_student001_21... attempt $i
+            sleep 3
           done
         '''
       }
