@@ -78,8 +78,6 @@ pipeline {
       }
     }
 
-
-
     stage('Install Node.js for Sonar') {
       steps {
         sh '''
@@ -95,7 +93,7 @@ pipeline {
 
     stage('SonarQube Static Analysis') {
       when {
-        expression { return params.RUN_SONAR ?: false }
+        expression { return params.RUN_SONAR ?: true }
       }
       steps {
         withSonarQubeEnv('SonarQube Server') {
@@ -120,7 +118,7 @@ pipeline {
     always {
       dir("${env.WORKSPACE}") {
         sh "docker rm -f ${APP_NAME} || true"
-        sh 'ls -lh zap_baseline_report_* || echo "⚠️ No ZAP reports found."'
+        sh "ls -l zap_baseline_report_* || echo '⚠️ No ZAP reports found.'"
         archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
         echo "✅ Pipeline completed."
       }
@@ -135,4 +133,5 @@ pipeline {
       }
     }
   }
+
 }
