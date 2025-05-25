@@ -15,14 +15,6 @@ pipeline {
       }
     }
 
-    stage('Tool Install') {
-      steps {
-        script {
-          tool name: 'NodeJS', type: 'hudson.plugins.nodejs.tools.NodeJSInstallation'
-        }
-      }
-    }
-
     stage('Build App Docker Image') {
       steps {
         sh "docker build -t ${IMAGE_NAME} ./app"
