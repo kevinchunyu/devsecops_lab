@@ -143,16 +143,24 @@ pipeline {
         sh '''
           TARGET_URL="http://localhost:${TEST_PORT}"
           
-          echo "🕷️ Starting ZAP Baseline Scan..."
+          echo "🕷️ Starting OWASP ZAP Baseline Scan..."
           
+          # Fix permissions for ZAP workspace
+          chmod 777 ${WORKSPACE}
+          
+          # Run ZAP with proper permissions
           docker run --rm \
             --network host \
+            --user $(id -u):$(id -g) \
             -v ${WORKSPACE}:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
               -t ${TARGET_URL} \
               -r zap_baseline_report.html \
               -J zap_baseline_report.json \
               || echo "ZAP scan completed"
+          
+          # Check if reports were generated
+          ls -la ${WORKSPACE}/zap_baseline_report.* || echo "No ZAP reports found"
         '''
       }
     }
