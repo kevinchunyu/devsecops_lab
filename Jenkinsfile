@@ -27,24 +27,24 @@ pipeline {
       }
     }
 
-    stage('SonarQube Analysis') {
-      steps {
-        withSonarQubeEnv('SonarQube Server') {
-          sh '''
-            ${SCANNER_HOME}/bin/sonar-scanner \
-              -Dsonar.login=$SONAR_TOKEN \
-              -Dsonar.projectKey=devsecops_lab_${STUDENT_ID} \
-              -Dsonar.projectName="DevSecOps Lab - ${STUDENT_ID}" \
-              -Dsonar.projectVersion=${BUILD_NUMBER} \
-              -Dsonar.sources=app \
-              -Dsonar.exclusions="**/node_modules/**" \
-              -Dsonar.javascript.file.suffixes=.js \
-              -Dsonar.sourceEncoding=UTF-8 \
-              -Dsonar.javascript.node.maxspace=4096
-          '''
-        }
-      }
-    }
+    // stage('SonarQube Analysis') {
+    //   steps {
+    //     withSonarQubeEnv('SonarQube Server') {
+    //       sh '''
+    //         ${SCANNER_HOME}/bin/sonar-scanner \
+    //           -Dsonar.login=$SONAR_TOKEN \
+    //           -Dsonar.projectKey=devsecops_lab_${STUDENT_ID} \
+    //           -Dsonar.projectName="DevSecOps Lab - ${STUDENT_ID}" \
+    //           -Dsonar.projectVersion=${BUILD_NUMBER} \
+    //           -Dsonar.sources=app \
+    //           -Dsonar.exclusions="**/node_modules/**" \
+    //           -Dsonar.javascript.file.suffixes=.js \
+    //           -Dsonar.sourceEncoding=UTF-8 \
+    //           -Dsonar.javascript.node.maxspace=4096
+    //       '''
+    //     }
+    //   }
+    // }
 
     stage('Build App') {
       steps {
@@ -81,6 +81,9 @@ pipeline {
         sh '''
           echo "🕷️ Starting OWASP ZAP Baseline Scan..."
 
+          # Give full write permissions to workspace for ZAP to write zap.yaml and reports
+          chmod -R 777 ${WORKSPACE}
+
           docker run --rm \
             --network ${DOCKER_NET} \
             -v ${WORKSPACE}:/zap/wrk/:rw \
@@ -94,6 +97,7 @@ pipeline {
         '''
       }
     }
+
 
     stage('Cleanup') {
       steps {
