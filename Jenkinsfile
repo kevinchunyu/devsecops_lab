@@ -1,12 +1,16 @@
 pipeline {
   agent any
 
+  parameters {
+    booleanParam(name: 'RUN_SONAR', defaultValue: false, description: 'Run SonarQube Static Analysis?')
+  }
+
   environment {
     SONAR_TOKEN  = credentials('SONAR_TOKEN')
     SCANNER_HOME = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
     IMAGE_TAG    = "student001-${BUILD_ID}"
     APP_NAME     = "app_student001_${BUILD_ID}"
-    DOCKER_NET   = "devsecops-net"
+    DOCKER_NET   = "devsecops_net"
   }
 
   stages {
@@ -16,25 +20,33 @@ pipeline {
       }
     }
 
-    stage('Build App Docker Image') {
+    stage('Build Docker Image') {
       steps {
-        sh 'docker build -t student_app:${IMAGE_TAG} ./app'
+        dir('app') {
+          sh 'docker build -t student_app:${IMAGE_TAG} .'
+        }
       }
     }
 
-    stage('Run App in Shared Network') {
+    stage('Run App Container') {
       steps {
         script {
           sh '''
+            # Create shared Docker network if it doesn't exist
             docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET}
+
+            # Remove any existing app container
             docker rm -f ${APP_NAME} || true
+
+            # Run app in shared Docker network
             docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
 
             echo "⏳ Waiting for container to be healthy..."
             sleep 5
 
+            # Poll for health check
             for i in {1..20}; do
-              if curl -s --connect-timeout 5 --max-time 10 http://${APP_NAME}:3009/health | grep -q "healthy"; then
+              if docker exec ${APP_NAME} curl -s http://localhost:3009/health | grep -q "healthy"; then
                 echo "✅ App is healthy!"
                 break
               fi
@@ -58,16 +70,17 @@ pipeline {
               --user 0:0 \
               -v $WORKSPACE:/zap/wrk/:rw \
               zaproxy/zap-stable \
-              zap-baseline.py -t http://${APP_NAME}:3009 \
-              -r zap_baseline_report.html \
-              -J zap_baseline_report.json \
-              -I
+              zap-baseline.py \
+                -t http://${APP_NAME}:3009 \
+                -r zap_baseline_report_${BUILD_ID}.html \
+                -J zap_baseline_report_${BUILD_ID}.json \
+                -I
           '''
         }
       }
     }
 
-    stage('SonarQube Analysis') {
+    stage('SonarQube Static Analysis') {
       when {
         expression { return params.RUN_SONAR ?: false }
       }
@@ -83,7 +96,7 @@ pipeline {
               -Dsonar.exclusions=**/node_modules/** \
               -Dsonar.javascript.file.suffixes=.js \
               -Dsonar.sourceEncoding=UTF-8 \
-              -Dsonar.javascript.node.maxspace=4096
+              -Dsonar.scanner.forceReload=true
           '''
         }
       }
@@ -93,18 +106,23 @@ pipeline {
   post {
     always {
       script {
+        // Stop and remove app container
         sh "docker rm -f ${APP_NAME} || true"
-        archiveArtifacts artifacts: '*.html,*.json', allowEmptyArchive: true
+
+        // Archive ZAP reports
+        archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
+
         echo "✅ Pipeline completed."
       }
     }
+
     failure {
       script {
         sh '''
-          echo "❌ Pipeline failed. Container logs below:"
-          docker logs ${APP_NAME} || echo "Could not get logs"
+          echo "❌ Pipeline failed. Logs from app container:"
+          docker logs ${APP_NAME} || echo "Could not fetch logs"
         '''
-        echo "❌ Pipeline failed."
+        echo "❌ Check pipeline output for issues."
       }
     }
   }
