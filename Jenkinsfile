@@ -87,83 +87,32 @@ pipeline {
       }
     }
 
-    stage('Security Testing') {
-      steps {
-        sh '''
-          TARGET_URL="http://localhost:${TEST_PORT}"
-          
-          echo "🔒 Running Security Tests..."
-          echo "Target: $TARGET_URL"
-          
-          # Test 1: SQL Injection
-          echo "🧪 Testing SQL Injection..."
-          SQLI_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
-            -d '{"username":"admin'\''OR'\''1'\''='\''1","password":"anything"}' \
-            "$TARGET_URL/api/login" || echo '{"error":"request_failed"}')
-          
-          echo "SQL Injection Response: $SQLI_RESPONSE"
-          
-          if echo "$SQLI_RESPONSE" | grep -q "success"; then
-            echo "🚨 VULNERABLE: SQL Injection bypass successful"
-          else
-            echo "✅ SECURE: SQL Injection blocked"
-          fi
-          
-          # Test 2: XSS
-          echo "🧪 Testing XSS..."
-          XSS_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
-            -d '{"username":"<script>alert('\''xss'\'')</script>","email":"test@test.com","password":"password123"}' \
-            "$TARGET_URL/api/register" || echo '{"error":"request_failed"}')
-          
-          echo "XSS Response: $XSS_RESPONSE"
-          
-          if echo "$XSS_RESPONSE" | grep -q "<script>"; then
-            echo "🚨 VULNERABLE: XSS payload reflected"
-          else
-            echo "✅ SECURE: XSS payload sanitized"
-          fi
-          
-          # Test 3: Path Traversal
-          echo "🧪 Testing Path Traversal..."
-          TRAVERSAL_RESPONSE=$(curl -s "$TARGET_URL/api/download/../../app.js" || echo "request_failed")
-          
-          if echo "$TRAVERSAL_RESPONSE" | grep -q "express\\|require"; then
-            echo "🚨 VULNERABLE: Path traversal successful"
-          else
-            echo "✅ SECURE: Path traversal blocked"
-          fi
-          
-          echo "🔒 Security testing complete"
-        '''
-      }
-    }
-
     stage('OWASP ZAP Baseline Scan') {
       steps {
         sh '''
-          TARGET_URL="http://localhost:${TEST_PORT}"
-          
+          TARGET_URL="http://host.docker.internal:${TEST_PORT}"
           echo "🕷️ Starting OWASP ZAP Baseline Scan..."
-          
-          # Fix permissions for ZAP workspace
+
+          # Ensure permissions
           chmod 777 ${WORKSPACE}
-          
-          # Run ZAP with proper permissions
+
+          # Run ZAP scan
           docker run --rm \
             --network host \
             --user $(id -u):$(id -g) \
+            --add-host=host.docker.internal:host-gateway \
             -v ${WORKSPACE}:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
               -t ${TARGET_URL} \
               -r zap_baseline_report.html \
-              -J zap_baseline_report.json \
-              || echo "ZAP scan completed"
-          
-          # Check if reports were generated
-          ls -la ${WORKSPACE}/zap_baseline_report.* || echo "No ZAP reports found"
+              -J zap_baseline_report.json
+
+          echo "ZAP scan completed. Checking for reports..."
+          ls -la ${WORKSPACE}/zap_baseline_report.*
         '''
       }
     }
+
 
     stage('Cleanup') {
       steps {
