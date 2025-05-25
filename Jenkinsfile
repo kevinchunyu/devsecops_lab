@@ -34,28 +34,26 @@ pipeline {
 
     stage('Run App in Custom Network') {
       steps {
-        sh '''
-          # Create custom network if not exists
-          docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET}
+        script {
+          sh '''
+            docker network inspect zap-net || docker network create zap-net
+            docker rm -f app_student001_22 || true
+            docker run -d --name app_student001_22 --network zap-net student_app:student001-22
 
-          # Remove any existing container
-          docker rm -f ${APP_NAME} || true
-
-          # Start app in custom network
-          docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
-
-           echo ⏳ Waiting for app to become reachable...
-          for i in {1..10}; do
-            if curl -s --head http://app_student001_21:3009 | grep "200 OK" > /dev/null; then
-              echo ✅ App is reachable!
-              break
-            fi
-            echo ⏳ Waiting for app_student001_21... attempt $i
-            sleep 3
-          done
-        '''
+            echo ⏳ Waiting for app to become reachable...
+            for i in {1..10}; do
+              if curl -s --head http://app_student001_22:3009 | grep "200 OK" > /dev/null; then
+                echo ✅ App is reachable!
+                break
+              fi
+              echo "⏳ Attempt $i: App not reachable yet..."
+              sleep 3
+            done
+          '''
+        }
       }
     }
+
 
     stage('OWASP ZAP Baseline Scan') {
       steps {
