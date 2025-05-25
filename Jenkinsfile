@@ -28,14 +28,15 @@ pipeline {
       steps {
         script {
           sh """
-            # Create network if it doesn't exist
-            docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET}
-            
             # Clean up any existing container
             docker rm -f ${APP_NAME} || true
             
-            # Start the application container
-            docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
+            # Start the application container with port mapping (VPN-friendly)
+            docker run -d --name ${APP_NAME} -p 3009:3009 student_app:${IMAGE_TAG}
+            
+            # Alternative: Create custom network with explicit subnet to avoid VPN conflicts
+            # docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET} --subnet=192.168.100.0/24
+            # docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
             
             # Wait for container to be running
             echo "⏳ Waiting for container to start..."
@@ -50,19 +51,31 @@ pipeline {
             
             echo "⏳ Waiting for ${APP_NAME} to become reachable..."
             
-            # Try different endpoints to check if app is ready
+            # Try different connection methods for VPN environments
             APP_READY=false
             for i in {1..20}; do
-              # Try health endpoint first
-              if curl -s --connect-timeout 5 --max-time 10 http://${APP_NAME}:3009/health 2>/dev/null; then
-                echo "✅ Health endpoint is responding!"
+              # Method 1: Try localhost (for port-mapped containers)
+              if curl -s --connect-timeout 5 --max-time 10 http://localhost:3009/health 2>/dev/null; then
+                echo "✅ Health endpoint is responding via localhost!"
                 APP_READY=true
                 break
               fi
               
-              # Try root endpoint as fallback
+              if curl -s --connect-timeout 5 --max-time 10 http://localhost:3009/ 2>/dev/null; then
+                echo "✅ Root endpoint is responding via localhost!"
+                APP_READY=true
+                break
+              fi
+              
+              # Method 2: Try container name (for custom network)
+              if curl -s --connect-timeout 5 --max-time 10 http://${APP_NAME}:3009/health 2>/dev/null; then
+                echo "✅ Health endpoint is responding via container name!"
+                APP_READY=true
+                break
+              fi
+              
               if curl -s --connect-timeout 5 --max-time 10 http://${APP_NAME}:3009/ 2>/dev/null; then
-                echo "✅ Root endpoint is responding!"
+                echo "✅ Root endpoint is responding via container name!"
                 APP_READY=true
                 break
               fi
@@ -86,13 +99,15 @@ pipeline {
               exit 1
             fi
             
-            # Final verification - test the actual endpoint ZAP will scan
+            # Final verification - test both connection methods
             echo "🔍 Final verification of app endpoints..."
-            curl -v http://${APP_NAME}:3009/ || {
+            if curl -v http://localhost:3009/ 2>/dev/null || curl -v http://${APP_NAME}:3009/ 2>/dev/null; then
+              echo "✅ Final verification successful!"
+            else
               echo "❌ Final verification failed. App is not responding correctly."
               docker logs ${APP_NAME}
               exit 1
-            }
+            fi
             
             echo "✅ ${APP_NAME} is ready for scanning!"
           """
@@ -113,19 +128,37 @@ pipeline {
               exit 1
             fi
 
-            # Run ZAP scan with better error handling
+            # Run ZAP scan with better error handling - try different target URLs
             set +e  # Don't exit on error immediately
+            
+            # First try: Use localhost if using port mapping
             docker run --rm \
-              --network ${DOCKER_NET} \
+              --network host \
               --user 0:0 \
               -v $WORKSPACE:/zap/wrk/:rw \
               zaproxy/zap-stable \
-              zap-baseline.py -t http://${APP_NAME}:3009 \
+              zap-baseline.py -t http://localhost:3009 \
               -r zap_baseline_report.html \
               -J zap_baseline_report.json \
-              -I  # Ignore informational alerts
-
+              -I
+            
             ZAP_EXIT_CODE=$?
+            
+            # If localhost fails and we're using custom network, try container name
+            if [ $ZAP_EXIT_CODE -ne 0 ] && [ $ZAP_EXIT_CODE -ne 2 ]; then
+              echo "⚠️ Localhost scan failed, trying container network..."
+              docker run --rm \
+                --network ${DOCKER_NET} \
+                --user 0:0 \
+                -v $WORKSPACE:/zap/wrk/:rw \
+                zaproxy/zap-stable \
+                zap-baseline.py -t http://${APP_NAME}:3009 \
+                -r zap_baseline_report.html \
+                -J zap_baseline_report.json \
+                -I
+              
+              ZAP_EXIT_CODE=$?
+            fi
             set -e  # Re-enable exit on error
 
             echo "ZAP scan completed with exit code: $ZAP_EXIT_CODE"
