@@ -58,6 +58,7 @@ pipeline {
         script {
           sh '''
             chmod -R 777 $WORKSPACE
+            sh 'rm -f $WORKSPACE/zap_baseline_report_*.html $WORKSPACE/zap_baseline_report_*.json || true'
 
             docker run --rm \
               --network ${DOCKER_NET} \
@@ -70,8 +71,8 @@ pipeline {
                 -J zap_baseline_report_${BUILD_ID}.json \
                 -I
 
-            chmod 644 $WORKSPACE/zap_baseline_report_${BUILD_ID}.html || true
-            chmod 644 $WORKSPACE/zap_baseline_report_${BUILD_ID}.json || true
+            chmod 644 $WORKSPACE/zap_baseline_report_*.html || true
+            chmod 644 $WORKSPACE/zap_baseline_report_*.json || true
           '''
         }
       }
