@@ -58,21 +58,20 @@ pipeline {
         script {
           sh '''
             chmod -R 777 $WORKSPACE
-            rm -f $WORKSPACE/zap_baseline_report_*.html $WORKSPACE/zap_baseline_report_*.json || true
 
             docker run --rm \
               --network ${DOCKER_NET} \
               --user 0:0 \
-              -v $WORKSPACE:/zap/:rw \
+              -v $WORKSPACE:/zap/wrk/:rw \
               zaproxy/zap-stable \
-              bash -c "cd /zap && ./zap-baseline.py \
+              zap-baseline.py \
                 -t http://${APP_NAME}:3009 \
                 -r zap_baseline_report_${BUILD_ID}.html \
                 -J zap_baseline_report_${BUILD_ID}.json \
-                -I"
+                -I
 
-            chmod 644 $WORKSPACE/zap_baseline_report_*.html || true
-            chmod 644 $WORKSPACE/zap_baseline_report_*.json || true
+            chmod 644 $WORKSPACE/zap_baseline_report_${BUILD_ID}.html || true
+            chmod 644 $WORKSPACE/zap_baseline_report_${BUILD_ID}.json || true
           '''
         }
       }
@@ -93,7 +92,7 @@ pipeline {
 
     stage('SonarQube Static Analysis') {
       when {
-        expression { return params.RUN_SONAR ?: true }
+        expression { return params.RUN_SONAR ?: false }
       }
       steps {
         withSonarQubeEnv('SonarQube Server') {
@@ -118,7 +117,7 @@ pipeline {
     always {
       dir("${env.WORKSPACE}") {
         sh "docker rm -f ${APP_NAME} || true"
-        sh "ls -l zap_baseline_report_* || echo '⚠️ No ZAP reports found.'"
+        sh 'ls -lh zap_baseline_report_* || echo "⚠️ No ZAP reports found."'
         archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
         echo "✅ Pipeline completed."
       }
@@ -133,5 +132,4 @@ pipeline {
       }
     }
   }
-
 }
