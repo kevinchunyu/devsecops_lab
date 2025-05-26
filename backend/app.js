@@ -4,9 +4,11 @@ const bodyParser = require('body-parser');
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
 const path = require('path');
-const { exec } = require('child_process');
+const fs = require('fs');
+const cors = require('cors');
 
 const app = express();
+app.use(cors()); // Allow cross-origin requests (optional: restrict to frontend origin)
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
@@ -19,28 +21,15 @@ const db = new sqlite3.Database('./database/userapp.db', (err) => {
   }
 });
 
-// Create tables and sample data
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL,
-      email TEXT NOT NULL
-    )
-  `);
-
-  // Create default admin user
-  const hashedPassword = crypto.createHash('md5').update('admin123').digest('hex');
-  db.run(
-    'INSERT OR IGNORE INTO users (username, password, email) VALUES (?, ?, ?)',
-    ['admin', hashedPassword, 'admin@example.com']
-  );
-});
-
 // Hash password function
 function hashPassword(password) {
   return crypto.createHash('md5').update(password).digest('hex');
+}
+
+// Ensure downloads directory exists
+const downloadsDir = path.join(__dirname, 'public', 'downloads');
+if (!fs.existsSync(downloadsDir)) {
+  fs.mkdirSync(downloadsDir, { recursive: true });
 }
 
 // HOME PAGE
@@ -69,7 +58,7 @@ app.get('/', (req, res) => {
 // VULNERABILITY 1: SQL INJECTION
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  
+
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
   }
@@ -78,7 +67,7 @@ app.post('/api/login', (req, res) => {
 
   // SQL Injection vulnerability - string concatenation
   const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${hashedPassword}'`;
-  
+
   console.log(`Executing query: ${query}`);
 
   db.get(query, (err, user) => {
@@ -107,7 +96,7 @@ app.post('/api/register', (req, res) => {
   const { username, email, password } = req.body;
 
   if (!username || !email || !password) {
-    return res.status(400).json({ error: 'All fields are required' });
+    return res.status(400).send('<p>All fields are required</p>');
   }
 
   const hashedPassword = hashPassword(password);
@@ -115,20 +104,15 @@ app.post('/api/register', (req, res) => {
   db.run(
     'INSERT INTO users (username, password, email) VALUES (?, ?, ?)',
     [username, hashedPassword, email],
-    function(err) {
+    function (err) {
       if (err) {
-        return res.status(500).json({ error: 'Registration failed' });
+        console.error(err.message);
+        return res.status(500).send('<p>Registration failed</p>');
       }
 
-      // XSS vulnerability - reflecting user input without sanitization
       res.json({
         success: true,
-        message: `Welcome ${username}! Registration email sent to ${email}`,
-        user: {
-          id: this.lastID,
-          username: username,
-          email: email
-        }
+        message: `Welcome ${username}! Registration email sent to ${email}`
       });
     }
   );
@@ -137,14 +121,15 @@ app.post('/api/register', (req, res) => {
 // VULNERABILITY 3: PATH TRAVERSAL
 app.get('/api/download/:filename', (req, res) => {
   const filename = req.params.filename;
-  
-  // Path traversal vulnerability - no validation on filename
+
+  // Path traversal vulnerability - no sanitization
   const filePath = path.join(__dirname, 'public', 'downloads', filename);
-  
+
   console.log(`Attempting to download: ${filePath}`);
-  
+
   res.download(filePath, (err) => {
     if (err) {
+      console.error('Download error:', err.message);
       res.status(404).json({ error: 'File not found' });
     }
   });

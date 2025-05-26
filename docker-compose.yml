@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: ./backend
+    container_name: devsecops-backend
+    ports:
+      - "3009:3009"
+    volumes:
+      - ./backend/database:/app/database
+    depends_on:
+      - init-db
+
+  frontend:
+    build: ./frontend
+    container_name: devsecops-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+  init-db:
+    build: ./backend
+    command: node init-db.js
+    volumes:
+      - ./backend/database:/app/database
