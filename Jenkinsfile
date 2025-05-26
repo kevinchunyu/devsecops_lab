@@ -3,8 +3,6 @@ pipeline {
 
   parameters {
     booleanParam(name: 'RUN_SONAR', defaultValue: true, description: 'Run SonarQube Static Analysis?')
-    booleanParam(name: 'RUN_ZAP', defaultValue: true, description: 'Run OWASP ZAP Dynamic Scan?')
-    booleanParam(name: 'RUN_CUSTOM_TESTS', defaultValue: true, description: 'Run Custom Security Tests?')
     string(name: 'STUDENT_ID', defaultValue: 'student001', description: 'Enter your student ID (e.g., student001)')
   }
 
@@ -14,8 +12,6 @@ pipeline {
     IMAGE_TAG    = "${params.STUDENT_ID}-${BUILD_ID}"
     APP_NAME     = "app_${params.STUDENT_ID}_${BUILD_ID}"
     DOCKER_NET   = "devsecops_net"
-    REPORT_HTML  = "zap_baseline_report_${params.STUDENT_ID}_${BUILD_ID}.html"
-    REPORT_JSON  = "zap_baseline_report_${params.STUDENT_ID}_${BUILD_ID}.json"
     STUDENT_PROJECT_KEY = "devsecops_lab_${params.STUDENT_ID}"
   }
 
@@ -24,16 +20,11 @@ pipeline {
       steps {
         echo "=== DevSecOps Lab - ${params.STUDENT_ID} ==="
         echo "Build ID: ${BUILD_ID}"
-        echo "Branch: ${env.BRANCH_NAME ?: 'main'}"
-        echo "SonarQube: ${params.RUN_SONAR}"
-        echo "ZAP Scan: ${params.RUN_ZAP}"
-        echo "Custom Tests: ${params.RUN_CUSTOM_TESTS}"
+        echo "SonarQube Analysis: ${params.RUN_SONAR}"
         
         sh '''
-          echo "Docker Info:"
+          echo "Docker version:"
           docker --version
-          echo "Available Networks:"
-          docker network ls
         '''
       }
     }
@@ -45,13 +36,9 @@ pipeline {
       }
     }
 
-    stage('Code Quality Check') {
+    stage('Code Validation') {
       steps {
         script {
-          def appDir = sh(script: 'ls -la', returnStdout: true)
-          echo "Repository structure:"
-          echo appDir
-          
           if (!fileExists('app')) {
             error("❌ 'app' directory not found. Please ensure your application code is in the 'app' folder.")
           }
@@ -60,6 +47,12 @@ pipeline {
             echo "⚠️  No package.json found - this might not be a Node.js application"
           } else {
             echo "✅ Node.js application detected"
+          }
+          
+          if (!fileExists('app/Dockerfile')) {
+            error("❌ Dockerfile not found in app directory")
+          } else {
+            echo "✅ Dockerfile found"
           }
         }
       }
@@ -97,15 +90,14 @@ pipeline {
               -Dsonar.projectVersion=${BUILD_ID} \
               -Dsonar.sources=app \
               -Dsonar.language=js \
-              -Dsonar.exclusions=**/node_modules/**,**/*.java,**/*.py,**/*.cpp,**/*.c,**/*.cs,**/test/**,**/tests/** \
+              -Dsonar.exclusions=**/node_modules/**,**/test/**,**/tests/** \
               -Dsonar.javascript.file.suffixes=.js,.mjs \
-              -Dsonar.typescript.file.suffixes=.ts,.tsx \
-              -Dsonar.inclusions=**/*.js,**/*.mjs,**/*.ts,**/*.tsx,**/package.json \
-              -Dsonar.sourceEncoding=UTF-8 \
-              -Dsonar.scm.disabled=true
+              -Dsonar.inclusions=**/*.js,**/*.mjs,**/package.json \
+              -Dsonar.sourceEncoding=UTF-8
           '''
         }
-        echo "✅ SonarQube analysis completed. Check results at: http://sonar.internal:9000"
+        echo "✅ SonarQube analysis completed"
+        echo "📊 View results at: http://sonar.internal:9000/dashboard?id=${env.STUDENT_PROJECT_KEY}"
       }
     }
 
@@ -114,12 +106,6 @@ pipeline {
         echo "🐳 Building Docker image..."
         dir('app') {
           sh '''
-            # Ensure Dockerfile exists
-            if [ ! -f Dockerfile ]; then
-              echo "❌ Dockerfile not found in app directory"
-              exit 1
-            fi
-            
             echo "Building image: student_app:${IMAGE_TAG}"
             docker build -t student_app:${IMAGE_TAG} .
             echo "✅ Docker image built successfully"
@@ -161,130 +147,74 @@ pipeline {
             fi
           done
           
-          # Show container info
           echo "Container status:"
           docker ps | grep ${APP_NAME}
         '''
       }
     }
 
-    stage('Custom Security Tests') {
-      when {
-        expression { return params.RUN_CUSTOM_TESTS }
-      }
+    stage('SQL Injection Security Tests') {
       steps {
-        echo "🔒 Running custom security tests..."
+        echo "🔒 Testing SQL Injection vulnerabilities..."
         
-        // SQL Injection Tests
-        script {
-          echo "Testing SQL Injection vulnerabilities..."
-          sh '''
-            echo "=== SQL Injection Test ==="
-            PAYLOADS=("admin'--" "admin' OR '1'='1" "' OR 'x'='x" "'; DROP TABLE users; --")
-            VULNERABLE=false
-            
-            for payload in "${PAYLOADS[@]}"; do
-              echo "Testing payload: $payload"
-              RESPONSE=$(docker exec ${APP_NAME} curl -s -X POST http://localhost:3009/api/login \
-                -H "Content-Type: application/json" \
-                -d "{\"username\": \"$payload\", \"password\": \"test\"}" || echo "ERROR")
-              
-              echo "Response: $RESPONSE"
-              
-              if [[ "$RESPONSE" == *"Login successful"* ]] || [[ "$RESPONSE" == *"welcome"* ]] || [[ "$RESPONSE" == *"admin"* ]]; then
-                echo "🚨 SQL Injection vulnerability detected with payload: $payload"
-                VULNERABLE=true
-              fi
-            done
-            
-            if [ "$VULNERABLE" = true ]; then
-              echo "❌ SQL Injection vulnerability found - Security test FAILED"
-              # Don't exit here, let other tests run but mark as unstable
-              # exit 1
-            else
-              echo "✅ SQL Injection tests passed"
-            fi
-          '''
-        }
-        
-        // XSS Tests
-        script {
-          echo "Testing XSS vulnerabilities..."
-          sh '''
-            echo "=== XSS Test ==="
-            XSS_PAYLOADS=("<script>alert('XSS')</script>" "<img src=x onerror=alert('XSS')>" "javascript:alert('XSS')")
-            
-            for payload in "${XSS_PAYLOADS[@]}"; do
-              echo "Testing XSS payload: $payload"
-              RESPONSE=$(docker exec ${APP_NAME} curl -s -X POST http://localhost:3009/api/search \
-                -H "Content-Type: application/json" \
-                -d "{\"query\": \"$payload\"}" || echo "ERROR")
-              
-              if [[ "$RESPONSE" == *"<script>"* ]] || [[ "$RESPONSE" == *"javascript:"* ]]; then
-                echo "🚨 XSS vulnerability detected!"
-              fi
-            done
-            
-            echo "✅ XSS tests completed"
-          '''
-        }
-        
-        // Directory Traversal Tests
-        script {
-          echo "Testing Directory Traversal vulnerabilities..."
-          sh '''
-            echo "=== Directory Traversal Test ==="
-            TRAVERSAL_PAYLOADS=("../../../etc/passwd" "..\\..\\..\\windows\\system32\\drivers\\etc\\hosts" "....//....//....//etc//passwd")
-            
-            for payload in "${TRAVERSAL_PAYLOADS[@]}"; do
-              echo "Testing traversal payload: $payload"
-              RESPONSE=$(docker exec ${APP_NAME} curl -s "http://localhost:3009/api/file?path=$payload" || echo "ERROR")
-              
-              if [[ "$RESPONSE" == *"root:"* ]] || [[ "$RESPONSE" == *"localhost"* ]]; then
-                echo "🚨 Directory Traversal vulnerability detected!"
-              fi
-            done
-            
-            echo "✅ Directory Traversal tests completed"
-          '''
-        }
-      }
-    }
-
-    stage('OWASP ZAP Dynamic Scan') {
-      when {
-        expression { return params.RUN_ZAP }
-      }
-      steps {
-        echo "🕷️  Starting OWASP ZAP dynamic security scan..."
         sh '''
-          echo "Target: http://${APP_NAME}:3009"
+          echo "=== SQL INJECTION VULNERABILITY TEST ==="
+          echo "Testing login endpoint: /api/login"
+          echo ""
           
-          # Run ZAP baseline scan
-          docker run --rm \
-            --network ${DOCKER_NET} \
-            --user 0:0 \
-            -v $WORKSPACE:/zap/wrk/:rw \
-            zaproxy/zap-stable \
-            zap-baseline-scan.py \
-              -t http://${APP_NAME}:3009 \
-              -r ${REPORT_HTML} \
-              -J ${REPORT_JSON} \
-              -I \
-              -d
+          # Test payloads for SQL injection
+          PAYLOADS=(
+            "admin'--"
+            "admin' OR '1'='1"
+            "' OR 'x'='x"
+            "'; DROP TABLE users; --"
+            "admin' UNION SELECT 1,2,3,4--"
+          )
           
-          echo "✅ ZAP scan completed"
+          VULNERABLE=false
+          BYPASS_COUNT=0
+          
+          for payload in "${PAYLOADS[@]}"; do
+            echo "🧪 Testing payload: $payload"
+            
+            RESPONSE=$(docker exec ${APP_NAME} curl -s -X POST http://localhost:3009/api/login \
+              -H "Content-Type: application/json" \
+              -d "{\"username\": \"$payload\", \"password\": \"test\"}" 2>/dev/null || echo "ERROR")
+            
+            echo "   Response: $RESPONSE"
+            
+            # Check if login was successful (indicating SQL injection)
+            if [[ "$RESPONSE" == *"Login successful"* ]] || [[ "$RESPONSE" == *"welcome"* ]] || [[ "$RESPONSE" == *"user"* ]]; then
+              echo "   🚨 VULNERABILITY DETECTED: SQL Injection successful!"
+              VULNERABLE=true
+              BYPASS_COUNT=$((BYPASS_COUNT + 1))
+            else
+              echo "   ✅ Payload blocked or failed"
+            fi
+            echo ""
+          done
+          
+          echo "=== RESULTS SUMMARY ==="
+          echo "Total payloads tested: ${#PAYLOADS[@]}"
+          echo "Successful bypasses: $BYPASS_COUNT"
+          
+          if [ "$VULNERABLE" = true ]; then
+            echo "🚨 SQL INJECTION VULNERABILITY CONFIRMED"
+            echo "❌ Application is vulnerable to SQL injection attacks"
+            echo "📋 Recommendation: Use parameterized queries instead of string concatenation"
+            # Mark build as unstable but don't fail (educational purpose)
+            echo "UNSTABLE" > sql_injection_result.txt
+          else
+            echo "✅ No SQL injection vulnerabilities detected"
+            echo "PASSED" > sql_injection_result.txt
+          fi
         '''
-      }
-      post {
-        always {
-          script {
-            if (fileExists(env.REPORT_HTML)) {
-              echo "📊 ZAP HTML report generated: ${env.REPORT_HTML}"
-            }
-            if (fileExists(env.REPORT_JSON)) {
-              echo "📊 ZAP JSON report generated: ${env.REPORT_JSON}"
-            }
+        
+        script {
+          def result = readFile('sql_injection_result.txt').trim()
+          if (result == 'UNSTABLE') {
+            currentBuild.result = 'UNSTABLE'
+            echo "⚠️  Build marked as UNSTABLE due to security vulnerabilities"
           }
         }
       }
@@ -292,31 +222,40 @@ pipeline {
 
     stage('Security Summary') {
       steps {
+        echo "=== SECURITY ASSESSMENT SUMMARY ==="
+        echo "Student: ${params.STUDENT_ID}"
+        echo "Build: ${BUILD_ID}"
+        echo "Timestamp: ${new Date()}"
+        echo ""
+        
         script {
-          echo "=== SECURITY SCAN SUMMARY ==="
-          echo "Student: ${params.STUDENT_ID}"
-          echo "Build: ${BUILD_ID}"
-          echo ""
-          
           if (params.RUN_SONAR) {
-            echo "📊 SonarQube Report: http://sonar.internal:9000/dashboard?id=${env.STUDENT_PROJECT_KEY}"
+            echo "📊 SonarQube Analysis: COMPLETED"
+            echo "   🔗 Dashboard: http://sonar.internal:9000/dashboard?id=${env.STUDENT_PROJECT_KEY}"
+            echo "   📋 Review code quality and security hotspots"
           }
           
-          if (params.RUN_ZAP && fileExists(env.REPORT_HTML)) {
-            def zapReport = readFile(env.REPORT_HTML)
-            if (zapReport.contains('High')) {
-              echo "🚨 HIGH RISK vulnerabilities found in ZAP scan!"
-            } else if (zapReport.contains('Medium')) {
-              echo "⚠️  MEDIUM RISK vulnerabilities found in ZAP scan"
-            } else {
-              echo "✅ No high-risk vulnerabilities found in ZAP scan"
-            }
+          def sqlResult = readFile('sql_injection_result.txt').trim()
+          if (sqlResult == 'UNSTABLE') {
+            echo "🔒 SQL Injection Test: VULNERABILITIES FOUND"
+            echo "   🚨 Action Required: Fix SQL injection vulnerabilities"
+          } else {
+            echo "🔒 SQL Injection Test: PASSED"
+            echo "   ✅ No SQL injection vulnerabilities detected"
           }
-          
-          echo ""
-          echo "📁 Reports archived in Jenkins artifacts"
-          echo "🔍 Review all findings and implement fixes"
         }
+        
+        echo ""
+        echo "📝 NEXT STEPS:"
+        echo "1. Review SonarQube dashboard for detailed findings"
+        echo "2. Fix any SQL injection vulnerabilities in your code"
+        echo "3. Use parameterized queries instead of string concatenation"
+        echo "4. Re-run the pipeline to verify fixes"
+        echo ""
+        echo "🎯 Learning Objectives:"
+        echo "- Understand how SQL injection attacks work"
+        echo "- Learn to identify vulnerable code patterns"
+        echo "- Practice secure coding techniques"
       }
     }
   }
@@ -334,29 +273,31 @@ pipeline {
         echo "✅ Cleanup completed"
       '''
       
-      // Archive reports
-      archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
+      // Archive test results
+      archiveArtifacts artifacts: 'sql_injection_result.txt', allowEmptyArchive: true
       
       echo "📋 Build completed for ${params.STUDENT_ID}"
     }
     
     success {
       echo "🎉 Pipeline completed successfully!"
-      echo "Next steps:"
-      echo "1. Review SonarQube dashboard for code quality issues"
-      echo "2. Analyze ZAP reports for security vulnerabilities"
-      echo "3. Fix identified issues and re-run the pipeline"
+      echo ""
+      echo "📚 REVIEW YOUR RESULTS:"
+      echo "1. Check SonarQube dashboard for code analysis"
+      echo "2. Review SQL injection test results above"
+      echo "3. Implement security fixes as needed"
     }
     
     failure {
       echo "❌ Pipeline failed!"
-      echo "Check the logs above for error details"
+      echo "Check the error logs above for details"
       sh 'docker logs ${APP_NAME} || echo "No container logs available"'
     }
     
     unstable {
-      echo "⚠️  Pipeline completed with warnings"
-      echo "Review the security findings and address them"
+      echo "⚠️  Pipeline completed with security issues found"
+      echo "🔧 Please review and fix the identified vulnerabilities"
+      echo "📖 This is a learning opportunity - analyze the findings!"
     }
   }
 }
