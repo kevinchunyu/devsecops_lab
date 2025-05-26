@@ -92,7 +92,7 @@ pipeline {
     stage('Test SQL Injection (curl)') {
       steps {
         script {
-          sh '''
+          sh '''#!/bin/bash
             echo "🧪 Testing SQL Injection via curl..."
 
             RESPONSE=$(curl -s -X POST http://${APP_NAME}:3009/api/login \
@@ -102,7 +102,7 @@ pipeline {
             echo "🔍 Response from server:"
             echo "$RESPONSE"
 
-            if echo "$RESPONSE" | grep -q "Login successful"; then
+            if [[ "$RESPONSE" == *"Login successful"* ]]; then
               echo "❌ SQL Injection vulnerability detected!"
               exit 1
             else
