@@ -11,8 +11,8 @@ pipeline {
     IMAGE_TAG    = "student001-${BUILD_ID}"
     APP_NAME     = "app_student001_${BUILD_ID}"
     DOCKER_NET   = "devsecops_net"
-    REPORT_HTML  = "zap_sqlinj_report_${BUILD_ID}.html"
-    REPORT_JSON  = "zap_sqlinj_report_${BUILD_ID}.json"
+    REPORT_HTML  = "zap_baseline_report_${BUILD_ID}.html"
+    REPORT_JSON  = "zap_baseline_report_${BUILD_ID}.json"
   }
 
   stages {
@@ -89,7 +89,7 @@ pipeline {
       }
     }
 
-    stage('OWASP ZAP - SQL Injection Scan Only') {
+    stage('OWASP ZAP Baseline Scan') {
       steps {
         script {
           sh '''
@@ -103,7 +103,7 @@ pipeline {
                 -r ${REPORT_HTML} \
                 -J ${REPORT_JSON} \
                 -I \
-                -z "-config scanner.attackOnStart=true -config scanner.activeScan.scanners=40018,40019"
+                -z "-config scanner.attackOnStart=true -config scanner.activeScan.scanners=40018,40019,40020,40021,90018"
 
             echo "📄 ZAP SQL Injection Report Preview:"
             head -n 100 ${REPORT_HTML} || echo "⚠️ Report not generated"
@@ -117,7 +117,7 @@ pipeline {
     always {
       script {
         sh 'docker rm -f ${APP_NAME} || true'
-        archiveArtifacts artifacts: 'zap_sqlinj_report_*.html,zap_sqlinj_report_*.json', allowEmptyArchive: true
+        archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
         echo "✅ Pipeline completed."
       }
     }
