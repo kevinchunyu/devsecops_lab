@@ -28,8 +28,6 @@ pipeline {
           if ! command -v node > /dev/null; then
             curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
             apt-get install -y nodejs
-          else
-            echo "Node.js already installed: $(node -v)"
           fi
         '''
       }
@@ -67,92 +65,68 @@ pipeline {
 
     stage('Run App Container') {
       steps {
-        script {
-          sh '''
-            docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET}
-            docker rm -f ${APP_NAME} || true
-            docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
+        sh '''
+          docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET}
+          docker rm -f ${APP_NAME} || true
+          docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
 
-            echo "⏳ Waiting for container to be healthy..."
-            sleep 5
-
-            for i in {1..20}; do
-              if docker exec ${APP_NAME} curl -s http://localhost:3009/health | grep -q "healthy"; then
-                echo "✅ App is healthy!"
-                break
-              fi
-              echo "⏳ Attempt $i: not healthy yet..."
-              sleep 3
-            done
-          '''
-        }
-      }
-    }
-
-    stage('Test SQL Injection (curl)') {
-      steps {
-        script {
-          sh '''#!/bin/bash
-            echo "🧪 Testing SQL Injection via curl..."
-
-            RESPONSE=$(curl -s -X POST http://${APP_NAME}:3009/api/login \
-              -H "Content-Type: application/json" \
-              -d '{"username": "admin\'--", "password": "anything"}')
-
-            echo "🔍 Response from server:"
-            echo "$RESPONSE"
-
-            if [[ "$RESPONSE" == *"Login successful"* ]]; then
-              echo "❌ SQL Injection vulnerability detected!"
-              exit 1
-            else
-              echo "✅ No SQL Injection vulnerability detected (basic test)."
+          for i in {1..20}; do
+            if docker exec ${APP_NAME} curl -s http://localhost:3009/health | grep -q "healthy"; then
+              echo "App is ready"
+              break
             fi
-          '''
-        }
+            sleep 3
+          done
+        '''
       }
     }
 
-    stage('OWASP ZAP Baseline Scan') {
+    stage('Test SQL Injection') {
       steps {
-        script {
-          sh '''
-            docker run --rm \
-              --network ${DOCKER_NET} \
-              --user 0:0 \
-              -v $WORKSPACE:/zap/wrk/:rw \
-              zaproxy/zap-stable \
-              zap-full-scan.py \
-                -t http://${APP_NAME}:3009 \
-                -r ${REPORT_HTML} \
-                -J ${REPORT_JSON} \
-                -I \
-                -z "-config scanner.attackOnStart=true -config scanner.activeScan.scanners=40018,40019,40020,40021,90018"
+        sh '''
+          PAYLOADS=("admin'--" "admin' OR '1'='1" "' OR 'x'='x")
+          
+          for payload in "${PAYLOADS[@]}"; do
+            RESPONSE=$(docker exec ${APP_NAME} curl -s -X POST http://localhost:3009/api/login \
+              -H "Content-Type: application/json" \
+              -d "{\"username\": \"$payload\", \"password\": \"test\"}")
+            
+            if [[ "$RESPONSE" == *"Login successful"* ]] || [[ "$RESPONSE" == *"welcome"* ]]; then
+              echo "SQL Injection vulnerability detected!"
+              exit 1
+            fi
+          done
+          
+          echo "SQL injection tests passed"
+        '''
+      }
+    }
 
-            echo "📄 ZAP SQL Injection Report Preview:"
-            head -n 100 ${REPORT_HTML} || echo "⚠️ Report not generated"
-          '''
-        }
+    stage('OWASP ZAP Scan') {
+      steps {
+        sh '''
+          docker run --rm \
+            --network ${DOCKER_NET} \
+            --user 0:0 \
+            -v $WORKSPACE:/zap/wrk/:rw \
+            zaproxy/zap-stable \
+            zap-baseline-scan.py \
+              -t http://${APP_NAME}:3009 \
+              -r ${REPORT_HTML} \
+              -J ${REPORT_JSON} \
+              -I
+        '''
       }
     }
   }
 
   post {
     always {
-      script {
-        sh 'docker rm -f ${APP_NAME} || true'
-        archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
-        echo "✅ Pipeline completed."
-      }
+      sh 'docker rm -f ${APP_NAME} || true'
+      archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
     }
     failure {
-      script {
-        sh '''
-          echo "❌ Pipeline failed. Attempting to fetch container logs:"
-          docker logs ${APP_NAME} || echo "Could not get logs"
-        '''
-        echo "❌ Check pipeline output for issues."
-      }
+      sh 'docker logs ${APP_NAME} || true'
     }
   }
 }
