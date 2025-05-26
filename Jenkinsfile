@@ -89,6 +89,30 @@ pipeline {
       }
     }
 
+    stage('Test SQL Injection (curl)') {
+      steps {
+        script {
+          sh '''
+            echo "🧪 Testing SQL Injection via curl..."
+
+            RESPONSE=$(curl -s -X POST http://${APP_NAME}:3009/api/login \
+              -H "Content-Type: application/json" \
+              -d '{"username": "admin\'--", "password": "anything"}')
+
+            echo "🔍 Response from server:"
+            echo "$RESPONSE"
+
+            if echo "$RESPONSE" | grep -q "Login successful"; then
+              echo "❌ SQL Injection vulnerability detected!"
+              exit 1
+            else
+              echo "✅ No SQL Injection vulnerability detected (basic test)."
+            fi
+          '''
+        }
+      }
+    }
+
     stage('OWASP ZAP Baseline Scan') {
       steps {
         script {
