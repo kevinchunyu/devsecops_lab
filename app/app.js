@@ -67,7 +67,6 @@ app.get('/', (req, res) => {
 });
 
 // VULNERABILITY 1: SQL INJECTION
-// Students need to fix: Use parameterized queries
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   
@@ -104,7 +103,6 @@ app.post('/api/login', (req, res) => {
 });
 
 // VULNERABILITY 2: CROSS-SITE SCRIPTING (XSS)
-// Students need to fix: Validate and sanitize input
 app.post('/api/register', (req, res) => {
   const { username, email, password } = req.body;
 
@@ -137,7 +135,6 @@ app.post('/api/register', (req, res) => {
 });
 
 // VULNERABILITY 3: PATH TRAVERSAL
-// Students need to fix: Validate filename and restrict file access
 app.get('/api/download/:filename', (req, res) => {
   const filename = req.params.filename;
   
