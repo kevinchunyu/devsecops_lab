@@ -89,7 +89,7 @@ pipeline {
       }
     }
 
-    stage('OWASP ZAP Baseline Scan') {
+    stage('OWASP ZAP - SQL Injection Scan Only') {
       steps {
         script {
           sh '''
@@ -98,11 +98,12 @@ pipeline {
               --user 0:0 \
               -v $WORKSPACE:/zap/wrk/:rw \
               zaproxy/zap-stable \
-              zap-baseline.py \
+              zap-full-scan.py \
                 -t http://${APP_NAME}:3009 \
                 -r ${REPORT_HTML} \
                 -J ${REPORT_JSON} \
-                -I
+                -I \
+                -z "-config scanner.attackOnStart=true -config scanner.activeScan.scanners=40018,40019,40020,40021,90018"
 
             echo "📄 ZAP HTML Report Preview:"
             head -n 100 ${REPORT_HTML} || echo "⚠️ Report not generated"
@@ -110,8 +111,7 @@ pipeline {
         }
       }
     }
-  }
-
+    
   post {
     always {
       script {
