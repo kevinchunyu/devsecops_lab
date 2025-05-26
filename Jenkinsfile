@@ -11,6 +11,8 @@ pipeline {
     IMAGE_TAG    = "student001-${BUILD_ID}"
     APP_NAME     = "app_student001_${BUILD_ID}"
     DOCKER_NET   = "devsecops_net"
+    REPORT_HTML  = "zap_baseline_report_${BUILD_ID}.html"
+    REPORT_JSON  = "zap_baseline_report_${BUILD_ID}.json"
   }
 
   stages {
@@ -34,7 +36,6 @@ pipeline {
           sh '''
             docker network inspect ${DOCKER_NET} >/dev/null 2>&1 || docker network create ${DOCKER_NET}
             docker rm -f ${APP_NAME} || true
-
             docker run -d --name ${APP_NAME} --network ${DOCKER_NET} student_app:${IMAGE_TAG}
 
             echo "⏳ Waiting for container to be healthy..."
@@ -57,9 +58,6 @@ pipeline {
       steps {
         script {
           sh '''
-            chmod -R 777 $WORKSPACE
-            rm -f $WORKSPACE/zap_baseline_report_*.html $WORKSPACE/zap_baseline_report_*.json || true
-
             docker run --rm \
               --network ${DOCKER_NET} \
               --user 0:0 \
@@ -67,14 +65,12 @@ pipeline {
               zaproxy/zap-stable \
               zap-baseline.py \
                 -t http://${APP_NAME}:3009 \
-                -r zap_baseline_report_${BUILD_ID}.html \
-                -J zap_baseline_report_${BUILD_ID}.json \
+                -r ${REPORT_HTML} \
+                -J ${REPORT_JSON} \
                 -I
 
-            # 👇 Copy to public directory for Nginx
-            sudo mkdir -p /var/www/html/zap_reports/
-            sudo cp $WORKSPACE/zap_baseline_report_${BUILD_ID}.html /var/www/html/zap_reports/
-            sudo cp $WORKSPACE/zap_baseline_report_${BUILD_ID}.json /var/www/html/zap_reports/
+            echo "📄 OWASP ZAP Report (truncated preview):"
+            head -n 100 ${REPORT_HTML} || echo "⚠️ Report not generated"
           '''
         }
       }
@@ -95,7 +91,7 @@ pipeline {
 
     stage('SonarQube Static Analysis') {
       when {
-        expression { return params.RUN_SONAR ?: false }
+        expression { return params.RUN_SONAR }
       }
       steps {
         withSonarQubeEnv('SonarQube Server') {
@@ -118,9 +114,12 @@ pipeline {
 
   post {
     always {
-      dir("${env.WORKSPACE}") {
-        sh "docker rm -f ${APP_NAME} || true"
-        sh 'ls -lh zap_baseline_report_* || echo "⚠️ No ZAP reports found."'
+      script {
+        sh '''
+          docker rm -f ${APP_NAME} || true
+          echo "📦 Available ZAP reports:"
+          ls -lh zap_baseline_report_* || echo "⚠️ No ZAP reports found."
+        '''
         archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
         echo "✅ Pipeline completed."
       }
@@ -128,7 +127,7 @@ pipeline {
     failure {
       script {
         sh '''
-          echo "❌ Pipeline failed. Container logs below:"
+          echo "❌ Pipeline failed. Attempting to fetch container logs:"
           docker logs ${APP_NAME} || echo "Could not get logs"
         '''
         echo "❌ Check pipeline output for issues."
