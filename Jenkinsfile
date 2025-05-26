@@ -22,6 +22,41 @@ pipeline {
       }
     }
 
+    stage('Install Node.js for Sonar') {
+      steps {
+        sh '''
+          if ! command -v node > /dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+            apt-get install -y nodejs
+          else
+            echo "Node.js already installed: $(node -v)"
+          fi
+        '''
+      }
+    }
+
+    stage('SonarQube Static Analysis') {
+      when {
+        expression { return params.RUN_SONAR }
+      }
+      steps {
+        withSonarQubeEnv('SonarQube Server') {
+          sh '''
+            ${SCANNER_HOME}/bin/sonar-scanner \
+              -Dsonar.login=${SONAR_TOKEN} \
+              -Dsonar.host.url=http://sonarqube:9000 \
+              -Dsonar.projectKey=devsecops_lab_student001 \
+              -Dsonar.projectName="DevSecOps Lab - student001" \
+              -Dsonar.projectVersion=${BUILD_ID} \
+              -Dsonar.sources=app \
+              -Dsonar.exclusions=**/node_modules/** \
+              -Dsonar.javascript.file.suffixes=.js \
+              -Dsonar.sourceEncoding=UTF-8
+          '''
+        }
+      }
+    }
+
     stage('Build Docker Image') {
       steps {
         dir('app') {
@@ -69,43 +104,8 @@ pipeline {
                 -J ${REPORT_JSON} \
                 -I
 
-            echo "📄 OWASP ZAP Report (truncated preview):"
+            echo "📄 ZAP HTML Report Preview:"
             head -n 100 ${REPORT_HTML} || echo "⚠️ Report not generated"
-          '''
-        }
-      }
-    }
-
-    stage('Install Node.js for Sonar') {
-      steps {
-        sh '''
-          if ! command -v node > /dev/null; then
-            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-            apt-get install -y nodejs
-          else
-            echo "Node.js already installed: $(node -v)"
-          fi
-        '''
-      }
-    }
-
-    stage('SonarQube Static Analysis') {
-      when {
-        expression { return params.RUN_SONAR }
-      }
-      steps {
-        withSonarQubeEnv('SonarQube Server') {
-          sh '''
-            ${SCANNER_HOME}/bin/sonar-scanner \
-              -Dsonar.login=${SONAR_TOKEN} \
-              -Dsonar.host.url=http://sonarqube:9000 \
-              -Dsonar.projectKey=devsecops_lab_student001 \
-              -Dsonar.projectName="DevSecOps Lab - student001" \
-              -Dsonar.projectVersion=${BUILD_ID} \
-              -Dsonar.sources=app \
-              -Dsonar.exclusions=**/node_modules/** \
-              -Dsonar.javascript.file.suffixes=.js \
-              -Dsonar.sourceEncoding=UTF-8
           '''
         }
       }
@@ -115,11 +115,7 @@ pipeline {
   post {
     always {
       script {
-        sh '''
-          docker rm -f ${APP_NAME} || true
-          echo "📦 Available ZAP reports:"
-          ls -lh zap_baseline_report_* || echo "⚠️ No ZAP reports found."
-        '''
+        sh 'docker rm -f ${APP_NAME} || true'
         archiveArtifacts artifacts: 'zap_baseline_report_*.html,zap_baseline_report_*.json', allowEmptyArchive: true
         echo "✅ Pipeline completed."
       }
