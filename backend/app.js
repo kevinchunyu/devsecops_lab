@@ -66,11 +66,11 @@ app.post('/api/login', (req, res) => {
   const hashedPassword = hashPassword(password);
 
   // SQL Injection vulnerability - string concatenation
-  const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${hashedPassword}'`;
+  const query = `SELECT * FROM users WHERE username = ? AND password = ?`;
 
   console.log(`Executing query: ${query}`);
 
-  db.get(query, (err, user) => {
+  db.get(query, [username, hashedPassword], (err, user) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
