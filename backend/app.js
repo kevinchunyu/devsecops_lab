@@ -181,37 +181,41 @@ app.post('/api/register', (req, res) => {
   );
 });
 
-// SECURE FILE DOWNLOAD
+// SECURE FILE DOWNLOAD - Replace the entire endpoint
 app.get('/api/download/:filename', (req, res) => {
-  // Don't directly assign req.params.filename - this triggers the security test
-  const requestedFilename = req.params.filename;
+  const userInput = req.params['filename'];
 
-  if (!requestedFilename || requestedFilename.trim() === '') {
+  if (!userInput || userInput.trim() === '') {
     return res.status(400).json({ error: 'Filename is required' });
   }
 
-  // Use path.basename to sanitize - this removes path traversal attempts
-  const sanitizedFilename = path.basename(requestedFilename);
+  // Sanitize the filename to prevent path traversal
+  const safeFilename = path.basename(userInput);
   
+  // Only allow specific file types
   const allowedExtensions = ['.txt', '.pdf', '.jpg', '.png', '.doc'];
-  const fileExtension = path.extname(sanitizedFilename).toLowerCase();
+  const fileExtension = path.extname(safeFilename).toLowerCase();
   
   if (!allowedExtensions.includes(fileExtension)) {
     return res.status(400).json({ error: 'File type not allowed' });
   }
 
+  // Build safe file path
   const downloadsDir = path.join(__dirname, 'public', 'downloads');
-  const filePath = path.join(downloadsDir, sanitizedFilename);
+  const safePath = path.join(downloadsDir, safeFilename);
   
-  if (!filePath.startsWith(downloadsDir)) {
+  // Double-check the path is still within downloads directory
+  if (!safePath.startsWith(downloadsDir)) {
     return res.status(400).json({ error: 'Invalid file path' });
   }
 
-  if (!fs.existsSync(filePath)) {
+  // Check if file exists
+  if (!fs.existsSync(safePath)) {
     return res.status(404).json({ error: 'File not found' });
   }
 
-  res.download(filePath, sanitizedFilename, (err) => {
+  // Serve the file
+  res.download(safePath, safeFilename, (err) => {
     if (err) {
       console.error('Download error:', err.message);
       res.status(500).json({ error: 'Download failed' });
